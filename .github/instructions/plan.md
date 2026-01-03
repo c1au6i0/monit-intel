@@ -15,9 +15,13 @@
 - ✅ Systemd deployment (auto-start, auto-restart)
 - ✅ Secure credentials via systemd EnvironmentFile
 
-🔄 **Phase 5-6: IN PROGRESS**
-- 🆕 Mother: Interactive chat interface (feature request)
-- 🆕 Agent actions: systemd/monit command execution (feature request)
+✅ **Phase 5-6: COMPLETE**
+- ✅ Mother: Interactive chat interface (REST + WebSocket)
+- ✅ Agent actions: systemd/monit command execution with audit logging
+- ✅ OS-aware context injection (auto-detects Ubuntu, Fedora, openSUSE, Arch, macOS)
+- ✅ System information gathering (hostname, distro, package manager)
+- ✅ Tailored LLM responses (OS-specific commands and advice)
+- ✅ Web chat UI (HTML/CSS/JavaScript with WebSocket support)
 
 ---
 
@@ -126,21 +130,24 @@ The agent uses this map to know where to look when a specific Monit check fails.
 * [x] Store credentials securely in systemd EnvironmentFile (Option 3).
 * [x] Test all endpoints with curl.
 
-### Phase 6: Interactive Chat ("Mother") 🆕 IN PROGRESS
+### Phase 6: Interactive Chat ("Mother") ✅ COMPLETE
 
-* [ ] **Mother CLI**: Interactive chat interface that queries the agent over REST API.
-* [ ] **Message history**: Store conversation context in SQLite (new table: `conversations`).
-* [ ] **Agent context**: Mother can pull service status, failure history, and logs to inform prompts.
-* [ ] **Implementation**: Python click CLI or web UI (TBD).
+* [x] **Mother interactive chat**: REST API + WebSocket bidirectional chat interface.
+* [x] **Message history**: Store conversation context in SQLite (conversations table).
+* [x] **System context injection**: Auto-detect OS, hostname, package manager.
+* [x] **OS-aware LLM**: Llama 3.1 gets system info in prompt, suggests correct commands.
+* [x] **Web UI**: HTML/CSS/JavaScript chat interface with WebSocket connection.
+* [x] **CLI interface**: `hello_mother.py` for terminal-based interactive chat.
+* [x] **Direct LLM invocation**: Mother queries LLM directly for immediate, intelligent responses.
 
-### Phase 7: Agent Actions 🆕 IN PROGRESS
+### Phase 7: Agent Actions ✅ COMPLETE
 
-* [ ] **Systemd commands**: Agent can restart services safely (e.g., `systemctl restart nordvpnd`).
-* [ ] **Monit commands**: Agent can trigger Monit re-check (e.g., `monit monitor <service>`).
-* [ ] **Read-only guardrails**: Actions whitelist (only safe operations, no destructive commands).
-* [ ] **Audit logging**: Log all agent actions to SQLite for accountability.
-* [ ] **Prompt engineering**: Teach Llama 3.1 when/how to suggest actions without executing.
-* [ ] **Confirmation flow**: User approval before executing sensitive commands.
+* [x] **Systemd commands**: Agent can execute safe systemd operations (restart, status).
+* [x] **Command whitelist**: Actions only allowed for approved services/commands.
+* [x] **Read-only guardrails**: No destructive operations (rm, kill, config rewrites).
+* [x] **Audit logging**: All agent actions logged to SQLite action_audit_log table.
+* [x] **Confirmation flow**: User approval required before executing sensitive commands.
+* [x] **Action suggestions**: LLM suggests actions; user confirms in chat interface.
 
 ---
 
@@ -174,68 +181,66 @@ The agent uses this map to know where to look when a specific Monit check fails.
 
 ---
 
-## 🤖 6. Phase 6: Mother - Interactive Chat Interface
+## 🤖 6. Phase 6: Mother - Interactive Chat Interface ✅ COMPLETE
 
-### Overview
-"Mother" is an interactive CLI/Web interface that allows humans to query the agent in natural language and get real-time analysis + remediation suggestions.
+"Mother" is an interactive chat interface (CLI + Web UI) with OS-aware system context injection and direct LLM invocation.
 
 ### Architecture
-
 ```
-┌─────────────────────────────────────────┐
-│   Mother CLI / Web UI                   │
-│   (Python Click or FastAPI Frontend)    │
-└────────────┬────────────────────────────┘
-             │ (HTTP/WebSocket)
-             ▼
-┌─────────────────────────────────────────┐
-│   REST API Server (FastAPI)             │
-│   - POST /mother/chat                   │
-│   - GET  /mother/history                │
-│   - DELETE /mother/clear                │
-└────────────┬────────────────────────────┘
-             │ (SQLite queries + Agent inference)
-             ▼
-┌─────────────────────────────────────────┐
-│   Agent Logic                           │
-│   - Service status context              │
-│   - Failure history lookup              │
-│   - Log retrieval + LLM analysis        │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│   Mother Chat Layer                                  │
+│   ├→ CLI: hello_mother.py (click-based interactive) │
+│   └→ Web UI: /chat (HTML/CSS/JS with WebSocket)    │
+└────────────┬─────────────────────────────────────────┘
+             │
+       ┌─────▼──────────────────────────────────┐
+       │ System Context Gathering               │
+       │ ├→ OS Detection (lsb_release)          │
+       │ ├→ Package Manager (apt, dnf, zypper) │
+       │ ├→ Hostname & Distro                   │
+       │ └→ Python Version                      │
+       └─────┬──────────────────────────────────┘
+             │
+       ┌─────▼──────────────────────────────────┐
+       │ LLM System Prompt Injection            │
+       │ ├→ OS-specific context                 │
+       │ ├→ Correct package manager commands   │
+       │ ├→ Hostname and system specs          │
+       │ └→ Service status context             │
+       └─────┬──────────────────────────────────┘
+             │
+       ┌─────▼──────────────────────────────────┐
+       │ Ollama Llama 3.1:8b (Direct Invoke)   │
+       └───────────────────────────────────────┘
 ```
 
-### Features
+### Features Implemented
 
-| Feature | Description |
-| --- | --- |
-| **Natural Language Queries** | "Why is system_backup failing?" → Agent fetches logs, analyzes, responds. |
-| **Contextual Memory** | Mother stores conversation history in SQLite (`conversations` table). |
-| **Service Status Context** | Mother can query current service status before passing to LLM. |
-| **Failure History** | "Show me the last 5 failures of nordvpn_status" → Pulls from failure_history table. |
-| **Log Retrieval** | "Show logs for gamma_conn" → Uses LogReader to fetch latest logs. |
-| **Action Suggestions** | Agent suggests remediations (e.g., "Consider restarting tailscaled"). |
+| Feature | Status | Details |
+| --- | --- | --- |
+| **Natural Language Queries** | ✅ | Ask about system health, failures, recommendations |
+| **OS Detection** | ✅ | Automatically detects Ubuntu, Fedora, openSUSE, Arch, Debian, CentOS, macOS |
+| **Package Manager Detection** | ✅ | Identifies apt, dnf, zypper, pacman, brew; suggests correct commands |
+| **System Context Injection** | ✅ | Hostname, distro, package manager in every LLM prompt |
+| **Contextual Memory** | ✅ | Conversation history stored in SQLite (`conversations` table) |
+| **Service Status Context** | ✅ | Current service status retrieved and included |
+| **Web Chat UI** | ✅ | Responsive HTML/CSS/JavaScript with WebSocket connectivity |
+| **CLI Chat** | ✅ | `hello_mother.py` for terminal-based interactive sessions |
+| **Direct LLM** | ✅ | Mother invokes Ollama directly for immediate, intelligent responses |
+| **Real-time Connection** | ✅ | WebSocket with auto-reconnect on disconnect |
 
-### Database Schema (New)
+### Database Schema
 
 ```sql
 CREATE TABLE conversations (
-    id INTEGER PRIMARY KEY,
-    timestamp DATETIME,
-    user_query TEXT,
-    agent_response TEXT,
-    service_context TEXT,  -- JSON: relevant service statuses at query time
-    logs_provided TEXT     -- JSON: logs that were included in analysis
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    user_query TEXT NOT NULL,
+    agent_response TEXT NOT NULL,
+    service_context TEXT,  -- JSON: relevant service statuses
+    logs_provided TEXT     -- JSON: logs included in analysis
 );
 ```
-
-### Implementation Tasks
-
-- [ ] Create `agent/mother.py` with Mother class (manages conversation state).
-- [ ] Add `/mother/chat` endpoint to `agent/api.py`.
-- [ ] Implement `conversations` SQLite table in database initialization.
-- [ ] Build CLI (`mother-cli.py`) using Python `click` library.
-- [ ] (Optional) Build simple web UI with Streamlit or React.
-- [ ] Add "context injection" to LLM prompts (current service status + recent logs).
 
 ---
 

@@ -7,8 +7,8 @@ import sqlite3
 from typing import Any
 from langgraph.graph import StateGraph, START, END
 from langchain_ollama import ChatOllama
-from agent.state import AgentState
-from tools import get_service_logs
+from .state import AgentState
+from ..tools.log_reader import LogReader
 
 # Initialize Llama 3.1 model
 model = ChatOllama(model="llama3.1:8b", temperature=0.2)
@@ -170,8 +170,9 @@ def fetch_logs_and_context(state: AgentState) -> dict[str, Any]:
     
     # Fetch logs for each failed service
     logs_output = []
+    log_reader = LogReader()
     for service in services:
-        log_content = get_service_logs(service)
+        log_content = log_reader.read_service_logs(service)
         logs_output.append(log_content)
     
     enhanced_context = context + "\n\n" + "\n\n".join(logs_output)

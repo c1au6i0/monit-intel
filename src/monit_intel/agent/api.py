@@ -4,13 +4,17 @@ Provides interactive interface to query and analyze service failures.
 """
 
 import sqlite3
-from fastapi import FastAPI, HTTPException
+import json
+import asyncio
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta
-from agent.graph import build_graph
-from agent.mother import Mother
-from agent.actions import ActionExecutor, ActionType
-from tools import get_service_logs
+from .graph import build_graph
+from .mother import Mother
+from .actions import ActionExecutor, ActionType
+from ..tools.log_reader import LogReader
 
 app = FastAPI(
     title="Monit-Intel Agent API",
@@ -334,6 +338,182 @@ def get_audit_log(limit: int = 50):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ============================================================================
+# WEBSOCKET: Bidirectional Chat
+# ============================================================================
+
+class ConnectionManager:
+    """Manages WebSocket connections."""
+    
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+    
+    async def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+    
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """
+    WebSocket endpoint for bidirectional chat with Mother.
+    
+    Message format:
+    {
+        "type": "message",
+        "content": "user query",
+        "action": "execute_command" (optional)
+    }
+    """
+    await manager.connect(websocket)
+    
+    try:
+        while True:
+            # Receive user message
+            data = await websocket.receive_json()
+            
+            msg_type = data.get("type", "message")
+            content = data.get("content", "").strip()
+            
+            if not content:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Empty message"
+                })
+                continue
+            
+            # Send acknowledgment
+            await websocket.send_json({
+                "type": "thinking",
+                "message": "Processing your query..."
+            })
+            
+            try:
+                if msg_type == "message":
+                    # Chat with Mother
+                    response = mother.query_agent(content)
+                    
+                    await websocket.send_json({
+                        "type": "response",
+                        "content": response,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                elif msg_type == "action":
+                    # Execute action
+                    action = data.get("action", "").lower()
+                    service = data.get("service", "").lower()
+                    
+                    if not action or not service:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Action and service required"
+                        })
+                        continue
+                    
+                    # Suggest action first
+                    suggestion = action_executor.suggest_action(action, service)
+                    
+                    if not suggestion.get("allowed"):
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": suggestion.get("reason", "Action not allowed")
+                        })
+                        continue
+                    
+                    # Ask for approval
+                    await websocket.send_json({
+                        "type": "action_suggestion",
+                        "action": suggestion.get("action_type"),
+                        "service": suggestion.get("service"),
+                        "command": suggestion.get("command"),
+                        "description": suggestion.get("description")
+                    })
+                
+                elif msg_type == "action_confirm":
+                    # Confirm and execute action
+                    action = data.get("action", "").lower()
+                    service = data.get("service", "").lower()
+                    
+                    result = action_executor.execute_action(action, service, approve=True)
+                    
+                    if result.get("success"):
+                        await websocket.send_json({
+                            "type": "action_result",
+                            "success": True,
+                            "exit_code": result.get("exit_code"),
+                            "output": result.get("output"),
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "action_result",
+                            "success": False,
+                            "error": result.get("reason"),
+                            "timestamp": datetime.now().isoformat()
+                        })
+                
+                elif msg_type == "history":
+                    # Get conversation history
+                    history = mother.get_history(limit=10)
+                    await websocket.send_json({
+                        "type": "history",
+                        "conversations": history
+                    })
+                
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Unknown message type: {msg_type}"
+                    })
+            
+            except Exception as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Error processing request: {str(e)}"
+                })
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        manager.disconnect(websocket)
+        print(f"WebSocket error: {e}")
+
+
+# ============================================================================
+# STATIC FILES: Serve Web UI
+# ============================================================================
+
+@app.get("/chat")
+def chat_ui():
+    """Serve the chat UI."""
+    import os
+    # Get the directory of this file and construct path to static/chat.html
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    chat_file = os.path.join(current_dir, "static", "chat.html")
+    
+    if not os.path.exists(chat_file):
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Chat UI not found at {chat_file}"
+        )
+    
+    return FileResponse(chat_file, media_type="text/html")
 
 
 if __name__ == "__main__":

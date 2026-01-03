@@ -63,17 +63,16 @@ sudo systemctl restart monit-intel-agent.service
 ### Manual Run Commands
 
 ```bash
-# Single ingestion run
-pixi run python ingest.py
+# Using pixi tasks (recommended for development)
+pixi run ingest              # Single ingestion run
+pixi run agent               # Start agent daemon with API
 
-# Run agent analysis once
-pixi run python main.py --once
+# Direct module execution (development with PYTHONPATH)
+PYTHONPATH=./src pixi run python -m monit_intel.ingest
+PYTHONPATH=./src pixi run python -m monit_intel.main --api 5 8000
 
-# Start agent daemon (checks every 5 minutes)
-pixi run python main.py
-
-# Start daemon with REST API (port 8000)
-pixi run python main.py --api 5 8000
+# Interactive chat mode
+PYTHONPATH=./src pixi run python -m monit_intel.hello_mother
 ```
 
 ### Production Deployment (Systemd)
@@ -84,7 +83,7 @@ pixi run python main.py --api 5 8000
 **Install services:**
 ```bash
 # Install systemd services for auto-startup on boot
-sudo bash /home/heverz/py_projects/monit-intel/install-services.sh
+sudo bash /home/heverz/py_projects/monit-intel/config/systemd/install-services.sh
 
 # Check service status
 systemctl status monit-intel-agent.service
@@ -102,7 +101,129 @@ systemctl list-timers monit-intel-ingest.timer
 - ✅ Ingest timer triggers every 5 minutes
 - ✅ Auto-restart on crash with 10-sec backoff
 - ✅ REST API always available on `localhost:8000`
+- ✅ WebSocket chat available on `ws://localhost:8000/ws/chat`
 - ✅ Credentials loaded from secure drop-in EnvironmentFile
+
+## 💬 Web Chat Interface
+
+### Access the Chat UI
+
+Once the agent is running, open your browser:
+
+```
+http://localhost:8000/chat
+```
+
+**Features:**
+- ✅ Real-time bidirectional conversation with Mother
+- ✅ Persistent WebSocket connection maintains context
+- ✅ OS-aware advice (auto-detects Ubuntu, Fedora, openSUSE, Arch, macOS)
+- ✅ System context injection (hostname, distro, package manager)
+- ✅ Tailored commands for your specific OS/package manager
+- ✅ Ask questions about system health, failures, logs
+- ✅ Execute system actions (restart services, check logs, etc.)
+- ✅ Automatic reconnection on disconnect
+- ✅ Full conversation history in-session
+
+### Chat Examples
+
+**System-Aware Package Management (Ubuntu):**
+```bash
+curl -X POST http://localhost:8000/mother/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What command should I use to update my system?"}'
+
+# Response:
+# {
+#   "query": "What command should I use to update my system?",
+#   "response": "To update your system, use the following command:\n\n`sudo apt update && sudo apt upgrade`\n\nThis will ensure that all packages on beta-boy are up-to-date.",
+#   "timestamp": "2026-01-03T13:42:13.347162"
+# }
+```
+
+**Service Health Query (REST API):**
+```bash
+curl -X POST http://localhost:8000/mother/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Are there any service failures right now?"}'
+
+# Response:
+# {
+#   "query": "Are there any service failures right now?",
+#   "response": "No, all services are currently healthy. There are no service failures reported at this time...",
+#   "timestamp": "2026-01-03T13:32:13.347162"
+# }
+```
+
+**Via Web UI (WebSocket):**
+```
+User: "Why is docker unhealthy?"
+Mother: "Based on the current system context, there are no immediate concerns about Docker's health. 
+However, I'd like to highlight a few potential future issues: [Outdated Docker version], 
+[Insufficient disk space], [Resource constraints]..."
+
+User: "What should I monitor for sshd?"
+Mother: "For SSH security and stability, monitor: Failed login attempts, Connection rate limits, 
+Resource usage, Configuration changes, Certificate/key validity..."
+
+User: "What's the overall system health?"
+Mother: "All services are currently healthy: docker ✓, sshd ✓, zfs-zed ✓. 
+The system shows no critical issues at this moment. Continue routine monitoring..."
+```
+
+### WebSocket Message Format
+
+The chat UI communicates with the agent via WebSocket at `/ws/chat`. Message types:
+
+**User Messages:**
+```json
+{
+  "type": "message",
+  "content": "user query here"
+}
+
+{
+  "type": "action",
+  "action": "restart",
+  "service": "docker"
+}
+
+{
+  "type": "action_confirm",
+  "action": "restart",
+  "service": "docker"
+}
+```
+
+**Agent Responses:**
+```json
+{
+  "type": "thinking",
+  "message": "Processing your query..."
+}
+
+{
+  "type": "response",
+  "content": "analysis or answer",
+  "timestamp": "2026-01-03T12:00:00"
+}
+
+{
+  "type": "action_suggestion",
+  "action": "restart",
+  "service": "docker",
+  "command": "systemctl restart docker",
+  "description": "Restart the docker service"
+}
+
+{
+  "type": "action_result",
+  "success": true,
+  "exit_code": 0,
+  "output": "command output here",
+  "timestamp": "2026-01-03T12:00:00"
+}
+```
 
 ## 🏗️ Architecture
 
@@ -110,12 +231,17 @@ systemctl list-timers monit-intel-ingest.timer
 
 | Module | Purpose |
 |--------|---------|
-| `ingest.py` | Polls Monit XML API every 5 min, stores snapshots, cleans old data |
-| `main.py` | Daemon runner - checks for failures every 5 min |
-| `agent/graph.py` | LangGraph workflow definition (DAG compilation) |
-| `agent/state.py` | LangGraph state definition |
-| `agent/nodes.py` | Individual workflow nodes (database, log fetching, LLM) |
-| `tools/log_reader.py` | Hybrid log reader (files, journalctl, glob patterns) |
+| `src/monit_intel/ingest.py` | Polls Monit XML API every 5 min, stores snapshots, cleans old data |
+| `src/monit_intel/main.py` | Daemon runner - checks for failures every 5 min |
+| `src/monit_intel/hello_mother.py` | Interactive CLI chat interface |
+| `src/monit_intel/agent/api.py` | FastAPI REST + WebSocket server |
+| `src/monit_intel/agent/graph.py` | LangGraph workflow definition (DAG compilation) |
+| `src/monit_intel/agent/state.py` | LangGraph state definition |
+| `src/monit_intel/agent/nodes.py` | Individual workflow nodes (database, log fetching, LLM) |
+| `src/monit_intel/agent/mother.py` | Interactive chat manager with context injection |
+| `src/monit_intel/agent/actions.py` | Safe command executor with whitelist and audit logging |
+| `src/monit_intel/agent/static/chat.html` | Web chat UI (HTML/CSS/JavaScript) |
+| `src/monit_intel/tools/log_reader.py` | Hybrid log reader (files, journalctl, glob patterns) |
 
 ### Data Flow
 
@@ -135,6 +261,20 @@ Monit XML API (every 5 min)
      └→ analyze_llm: Llama 3.1 root-cause analysis
      ↓
 Console output (skips LLM for unchanged failures)
+
+┌─ WEB CHAT INTERFACE ─────────────────────┐
+│  Browser → WebSocket (/ws/chat)          │
+│  ↓                                        │
+│  [Mother Chat Manager]                   │
+│  ├→ Auto-detect OS (Linux, Darwin, etc.) │
+│  ├→ Detect package manager (apt, dnf...)│
+│  ├→ Inject system context                │
+│  └→ LLM with OS-specific system prompt   │
+│  ↓                                        │
+│  [Agent Graph + Ollama LLM]               │
+│  ↓                                        │
+│  Browser (Real-time response)            │
+└──────────────────────────────────────────┘
 ```
 
 ### System Architecture Diagram

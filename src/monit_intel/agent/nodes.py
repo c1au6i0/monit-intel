@@ -1,8 +1,8 @@
 import sqlite3
 import json
 from langchain_ollama import ChatOllama
-from agent.state import AgentState
-from tools import get_service_logs
+from .state import AgentState
+from ..tools.log_reader import LogReader
 
 # Initialize our model (on GPU 1)
 model = ChatOllama(model="llama3.1:8b", temperature=0.2)

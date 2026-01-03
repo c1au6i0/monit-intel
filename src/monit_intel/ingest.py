@@ -108,13 +108,16 @@ def schedule_ingestion(interval_minutes: int = 5):
         schedule.run_pending()
         time.sleep(1)
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for ingest module."""
     import sys
     
     if len(sys.argv) > 1 and sys.argv[1] == "--schedule":
-        # Run in scheduled mode (e.g., for systemd service)
         interval = int(sys.argv[2]) if len(sys.argv) > 2 else 5
         schedule_ingestion(interval)
     else:
-        # Run once and exit
         run_ingestion()
+
+
+if __name__ == "__main__":
+    main()

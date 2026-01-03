@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-Mother CLI: Interactive chat interface for the Monit-Intel agent.
+Hello Mother: Interactive chat with the Monit-Intel agent.
+Default mode is interactive chat. Use subcommands for other operations.
 """
 
 import click
@@ -13,15 +14,27 @@ from tabulate import tabulate
 API_URL = "http://localhost:8000"
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.pass_context
-def mother_cli(ctx):
-    """Mother: Interactive chat with the Monit-Intel agent."""
+def hello_mother(ctx):
+    """
+    Hello Mother: Interactive chat with the Monit-Intel agent.
+    
+    Start interactive chat mode by default. Use subcommands for specific operations:
+    - hello_mother.py chat "query"     Send a single message
+    - hello_mother.py history          View past conversations
+    - hello_mother.py clear            Clear chat history
+    - hello_mother.py actions          Manage system actions
+    """
     ctx.ensure_object(dict)
     ctx.obj['api_url'] = API_URL
+    
+    # If no subcommand provided, start interactive mode
+    if ctx.invoked_subcommand is None:
+        _interactive_mode(ctx)
 
 
-@mother_cli.command()
+@hello_mother.command()
 @click.argument('query')
 @click.pass_context
 def chat(ctx, query):
@@ -49,7 +62,7 @@ def chat(ctx, query):
         click.secho(f"❌ Error: {str(e)}", fg="red")
 
 
-@mother_cli.command()
+@hello_mother.command()
 @click.option('--limit', default=10, help='Number of conversations to show')
 @click.pass_context
 def history(ctx, limit):
@@ -83,7 +96,7 @@ def history(ctx, limit):
         click.secho(f"❌ Error: {str(e)}", fg="red")
 
 
-@mother_cli.command()
+@hello_mother.command()
 @click.confirmation_option(prompt="Are you sure you want to clear all conversations?")
 @click.pass_context
 def clear(ctx):
@@ -104,7 +117,7 @@ def clear(ctx):
 # ACTIONS: Suggest and Execute Safe Commands
 # ============================================================================
 
-@mother_cli.group()
+@hello_mother.group()
 def actions():
     """Manage safe system actions (restart services, check logs, etc.)."""
     pass
@@ -240,61 +253,115 @@ def audit(ctx, limit):
         click.secho(f"❌ Error: {str(e)}", fg="red")
 
 
-@mother_cli.command()
-@click.pass_context
-def interactive(ctx):
-    """Start interactive chat mode (type 'help' for commands, 'quit' to exit)."""
-    click.secho("🤖 Mother Agent - Interactive Mode", fg="cyan", bold=True)
-    click.secho("Type 'help' for commands, 'quit' to exit\n", fg="white")
+
+
+def _interactive_mode(ctx):
+    """Internal function for interactive chat (no Click decorators)."""
+    api_url = ctx.obj.get('api_url', API_URL)
+    
+    click.secho("", fg="cyan")
+    click.secho("🤖 Hello Mother - Interactive Chat Mode", fg="cyan", bold=True)
+    click.secho("=" * 45, fg="cyan")
+    click.secho("Type your question or 'help' for commands. 'quit' to exit.\n", fg="white")
     
     while True:
         try:
             user_input = click.prompt("You", type=str)
             
             if user_input.lower() == "quit":
-                click.secho("Goodbye! 👋", fg="cyan")
+                click.secho("\nGoodbye! 👋", fg="cyan")
                 break
             elif user_input.lower() == "help":
                 click.secho("""
-Available commands:
-  <question>     - Chat with the agent
-  history        - View recent conversations
-  clear          - Clear conversation history
-  actions        - Manage system actions
-  status         - Show service status
-  quit           - Exit interactive mode
+┌─ Interactive Commands ─────────────────────┐
+│ <any text>    - Chat with Mother          │
+│ status        - Show service status       │
+│ history       - View recent conversations │
+│ clear         - Clear chat history        │
+│ actions       - Manage system actions     │
+│ quit          - Exit                      │
+└────────────────────────────────────────────┘
                 """, fg="white")
                 continue
             elif user_input.lower() == "status":
                 # Show service status
-                response = requests.get(f"{ctx.obj['api_url']}/status")
-                services = response.json()
-                
-                for svc in services[:5]:  # Show first 5
-                    status_str = "✓ OK" if svc['status'] == 0 else "✗ FAILED"
-                    click.secho(f"  {svc['name']}: {status_str}", fg="green" if svc['status'] == 0 else "red")
+                try:
+                    response = requests.get(f"{api_url}/status")
+                    services = response.json()
+                    
+                    click.secho("\n📊 Service Status:", fg="cyan", bold=True)
+                    for svc in services[:10]:  # Show first 10
+                        status_str = "✓ HEALTHY" if svc['status'] == 0 else "✗ FAILED"
+                        color = "green" if svc['status'] == 0 else "red"
+                        click.secho(f"   {svc['name']:20} {status_str}", fg=color)
+                    click.echo()
+                except Exception as e:
+                    click.secho(f"Error fetching status: {e}", fg="red")
+                continue
+            elif user_input.lower() == "history":
+                # Show history
+                try:
+                    response = requests.get(f"{api_url}/mother/history?limit=5")
+                    data = response.json()
+                    
+                    if data["conversations"]:
+                        click.secho("\n📋 Recent Conversations:", fg="cyan", bold=True)
+                        for conv in data["conversations"]:
+                            click.secho(f"\n  [{conv['timestamp']}]", fg="white")
+                            click.secho(f"  You: {conv['user_query'][:60]}...", fg="yellow")
+                            click.secho(f"  Mother: {conv['agent_response'][:60]}...", fg="green")
+                        click.echo()
+                    else:
+                        click.echo("No conversation history yet.\n")
+                except Exception as e:
+                    click.secho(f"Error fetching history: {e}", fg="red")
+                continue
+            elif user_input.lower() == "clear":
+                if click.confirm("Clear all conversations?"):
+                    try:
+                        requests.delete(f"{api_url}/mother/clear")
+                        click.secho("✓ History cleared.\n", fg="green")
+                    except Exception as e:
+                        click.secho(f"Error: {e}", fg="red")
+                continue
+            elif user_input.lower().startswith("actions"):
+                click.secho("\nUse: hello_mother.py actions <suggest|execute|audit> ...\n", fg="white")
                 continue
             
             # Chat with agent
-            response = requests.post(
-                f"{ctx.obj['api_url']}/mother/chat",
-                json={"query": user_input},
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            click.secho(f"Agent: {data['response']}\n", fg="green")
+            if user_input.strip():
+                response = requests.post(
+                    f"{api_url}/mother/chat",
+                    json={"query": user_input},
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                click.secho(f"\nMother: {data['response']}\n", fg="green")
         
         except KeyboardInterrupt:
             click.secho("\n\nGoodbye! 👋", fg="cyan")
             break
         except requests.exceptions.ConnectionError:
-            click.secho("❌ Agent not connected. Start it with: pixi run python main.py --api 5 8000", fg="red")
+            click.secho(f"\n❌ Cannot connect to agent at {api_url}", fg="red")
+            click.secho("Start it with: pixi run python main.py --api 5 8000\n", fg="white")
             break
         except Exception as e:
             click.secho(f"❌ Error: {str(e)}", fg="red")
 
 
+@hello_mother.command()
+@click.pass_context
+def interactive(ctx):
+    """Start interactive chat mode (type 'help' for commands, 'quit' to exit)."""
+    _interactive_mode(ctx)
+
+
+def main():
+    """Main entry point for hello_mother CLI."""
+    hello_mother(obj={})
+
+
 if __name__ == "__main__":
-    mother_cli(obj={})
+    main()

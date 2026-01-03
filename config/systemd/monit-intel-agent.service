@@ -9,11 +9,14 @@ Type=simple
 User=heverz
 WorkingDirectory=/home/heverz/py_projects/monit-intel
 
+# Set PYTHONPATH for module discovery
+Environment="PYTHONPATH=/home/heverz/py_projects/monit-intel/src"
+
 # Load environment from .env (optional)
 EnvironmentFile=-/home/heverz/.env
 
 # Run agent daemon with REST API (checks every 5 min, serves on port 8000)
-ExecStart=/bin/bash /home/heverz/py_projects/monit-intel/run-agent.sh
+ExecStart=/bin/bash /home/heverz/py_projects/monit-intel/scripts/run-agent.sh
 
 # Logging
 StandardOutput=journal

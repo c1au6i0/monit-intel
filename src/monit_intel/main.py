@@ -7,8 +7,8 @@ Also provides REST API for interactive querying.
 import time
 import schedule
 import threading
-from agent.graph import build_graph
-from agent.api import app
+from .agent.graph import build_graph
+from .agent.api import app
 import uvicorn
 
 
@@ -102,3 +102,17 @@ if __name__ == "__main__":
         interval = int(sys.argv[1]) if len(sys.argv) > 1 else 5
         run_agent_daemon(interval)
 
+
+def main():
+    """Main entry point for CLI."""
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+        run_agent_once()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--api":
+        interval = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+        port = int(sys.argv[3]) if len(sys.argv) > 3 else 8000
+        run_with_api(check_interval_minutes=interval, api_port=port)
+    else:
+        interval = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+        run_agent_daemon(interval)

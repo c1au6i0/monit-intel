@@ -23,6 +23,10 @@ click = "*"
 tabulate = "*"
 
 [tasks]
-ingest = "python ingest.py"
-agent = "python main.py"
+ingest = "PYTHONPATH=./src python -m monit_intel.ingest"
+agent = "PYTHONPATH=./src python -m monit_intel.main --api 5 8000"
+hello-mother = "PYTHONPATH=./src python -m monit_intel.hello_mother"
 check-gpu = "nvidia-smi"
+
+[tool.pixi]
+system-requirements = { cuda = "12.1" }

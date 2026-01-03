@@ -9,11 +9,14 @@ Type=simple
 User=heverz
 WorkingDirectory=/home/heverz/py_projects/monit-intel
 
+# Set PYTHONPATH for module discovery
+Environment="PYTHONPATH=/home/heverz/py_projects/monit-intel/src"
+
 # Load environment from .env
 EnvironmentFile=%h/.env
 
 # Run ingest once (timer handles 5-minute scheduling)
-ExecStart=/home/heverz/.pixi/bin/pixi run python ingest.py
+ExecStart=/home/heverz/.pixi/bin/pixi run python -m monit_intel.ingest
 
 # Restart on failure
 Restart=on-failure

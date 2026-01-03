@@ -5,10 +5,17 @@ Manages conversation history and context injection for LLM analysis.
 
 import sqlite3
 import json
+import platform
+import subprocess
+import socket
 from datetime import datetime
 from typing import Optional, Dict, List
-from agent.graph import build_graph
-from tools.log_reader import LogReader
+from langchain_ollama import ChatOllama
+from .graph import build_graph
+from ..tools.log_reader import LogReader
+
+# Initialize LLM for direct queries
+llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
 
 
 class Mother:
@@ -18,6 +25,71 @@ class Mother:
         self.db_path = db_path
         self.log_reader = LogReader()
         self._init_conversations_table()
+        self.system_info = self._gather_system_info()
+
+    def _gather_system_info(self) -> Dict:
+        """Gather system information for context."""
+        info = {
+            "hostname": socket.gethostname(),
+            "os": platform.system(),
+            "distro": platform.platform(),
+            "python_version": platform.python_version(),
+        }
+        
+        # Determine package manager based on OS
+        if info["os"] == "Linux":
+            # Check for distro-specific package managers
+            try:
+                result = subprocess.run(["lsb_release", "-d"], 
+                                      capture_output=True, text=True, timeout=2)
+                if "ubuntu" in result.stdout.lower():
+                    info["package_manager"] = "apt (Ubuntu)"
+                    info["update_command"] = "sudo apt update && sudo apt upgrade"
+                elif "debian" in result.stdout.lower():
+                    info["package_manager"] = "apt (Debian)"
+                    info["update_command"] = "sudo apt update && sudo apt upgrade"
+                elif "fedora" in result.stdout.lower() or "centos" in result.stdout.lower():
+                    info["package_manager"] = "dnf (Fedora/CentOS)"
+                    info["update_command"] = "sudo dnf check-update && sudo dnf upgrade"
+                elif "opensuse" in result.stdout.lower():
+                    info["package_manager"] = "zypper (openSUSE)"
+                    info["update_command"] = "sudo zypper refresh && sudo zypper update"
+                elif "arch" in result.stdout.lower():
+                    info["package_manager"] = "pacman (Arch)"
+                    info["update_command"] = "sudo pacman -Syu"
+                else:
+                    info["package_manager"] = "Unknown Linux"
+                    info["update_command"] = "Check your distro documentation"
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                # Fallback: check common package managers
+                if self._command_exists("apt"):
+                    info["package_manager"] = "apt"
+                    info["update_command"] = "sudo apt update && sudo apt upgrade"
+                elif self._command_exists("dnf"):
+                    info["package_manager"] = "dnf"
+                    info["update_command"] = "sudo dnf check-update && sudo dnf upgrade"
+                elif self._command_exists("zypper"):
+                    info["package_manager"] = "zypper"
+                    info["update_command"] = "sudo zypper refresh && sudo zypper update"
+                else:
+                    info["package_manager"] = "Unknown"
+                    info["update_command"] = "Check your distro documentation"
+        elif info["os"] == "Darwin":
+            info["package_manager"] = "brew (macOS)"
+            info["update_command"] = "brew update && brew upgrade"
+        else:
+            info["package_manager"] = "Unknown"
+            info["update_command"] = "Check your OS documentation"
+        
+        return info
+    
+    def _command_exists(self, command: str) -> bool:
+        """Check if a command exists in PATH."""
+        try:
+            subprocess.run(["which", command], capture_output=True, timeout=1, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
     def _init_conversations_table(self):
         """Create conversations table if it doesn't exist."""
@@ -103,36 +175,35 @@ class Mother:
         
         # Build context-enriched prompt
         context_info = self._build_context_info(mentioned_services, service_context)
-        enriched_query = f"{user_query}\n\n--- System Context ---\n{context_info}"
         
-        # Invoke agent graph
+        # Invoke LLM directly with context
         try:
-            graph = build_graph()
-            state = {
-                "messages": [{"role": "user", "content": enriched_query}],
-                "context_data": context_info,
-                "is_critical": any(not service_context[s]["healthy"] for s in mentioned_services 
-                                  if s in service_context)
-            }
-            result = graph.invoke(state)
+            # Build system-aware prompt
+            system_prompt = f"""You are an expert system administrator assistant analyzing server health and providing insights.
+You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
+
+When recommending system updates or commands:
+- Use {self.system_info['package_manager']} commands, NOT other package managers
+- Use this command for updates: {self.system_info['update_command']}
+- Hostname: {self.system_info['hostname']}
+
+You have access to current service status information and can help diagnose issues, suggest actions, and explain system health.
+Be concise, actionable, and focus on the most important information. Always tailor advice to the specific OS and package manager."""
             
-            # Extract response from messages (handle both tuple and object formats)
-            response = "No response"
-            if result.get("messages"):
-                last_msg = result["messages"][-1]
-                if isinstance(last_msg, tuple) and len(last_msg) > 1:
-                    response = last_msg[1]
-                elif hasattr(last_msg, "content"):
-                    response = last_msg.content
-                elif isinstance(last_msg, dict) and "content" in last_msg:
-                    response = last_msg["content"]
+            response = llm.invoke([
+                ("system", system_prompt),
+                ("user", f"{user_query}\n\n--- Current System Context ---\n{context_info}")
+            ])
+            
+            response_text = response.content if hasattr(response, "content") else str(response)
+        
         except Exception as e:
-            response = f"Error analyzing query: {str(e)}"
+            response_text = f"Error analyzing query: {str(e)}"
         
         # Store conversation
-        self._store_conversation(user_query, response, context_info, mentioned_services)
+        self._store_conversation(user_query, response_text, context_info, mentioned_services)
         
-        return response
+        return response_text
 
     def _extract_services(self, query: str, service_context: Dict) -> List[str]:
         """Extract mentioned service names from user query."""

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Wrapper script to easily run monit-intel commands
+export PYTHONPATH="/home/heverz/py_projects/monit-intel/src:$PYTHONPATH"
+exec pixi run python -m monit_intel "$@"
