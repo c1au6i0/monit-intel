@@ -1,0 +1,28 @@
+[Unit]
+Description=Monit-Intel Agent Daemon with REST API
+Documentation=https://github.com/heverz/monit-intel
+After=network-online.target monit-intel-ingest.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=heverz
+WorkingDirectory=/home/heverz/py_projects/monit-intel
+
+# Load environment from .env (optional)
+EnvironmentFile=-/home/heverz/.env
+
+# Run agent daemon with REST API (checks every 5 min, serves on port 8000)
+ExecStart=/bin/bash /home/heverz/py_projects/monit-intel/run-agent.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monit-intel-agent
+
+# Restart on failure
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

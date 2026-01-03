@@ -1,0 +1,26 @@
+[project]
+name = "monit-intel"
+channels = ["conda-forge", "pytorch", "nvidia"]
+platforms = ["linux-64"]
+
+[system-requirements]
+cuda = "12.1"
+
+[dependencies]
+python = ">=3.11"
+pytorch-gpu = "*"
+xmltodict = "*"
+python-dotenv = "*"
+requests = "*"
+sqlite = "*"
+langgraph = "*"
+langchain-ollama = "*"
+pandas = "*"
+schedule = "*"
+fastapi = "*"
+uvicorn = "*"
+
+[tasks]
+ingest = "python ingest.py"
+agent = "python main.py"
+check-gpu = "nvidia-smi"

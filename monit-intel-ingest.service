@@ -1,0 +1,40 @@
+[Unit]
+Description=Monit-Intel Ingest Service
+Documentation=https://github.com/heverz/monit-intel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=heverz
+WorkingDirectory=/home/heverz/py_projects/monit-intel
+
+# Load environment from .env
+EnvironmentFile=%h/.env
+
+# Run ingest once (timer handles 5-minute scheduling)
+ExecStart=/home/heverz/.pixi/bin/pixi run python ingest.py
+
+# Restart on failure
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monit-intel-ingest
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/home/heverz/py_projects/monit-intel
+
+[Install]
+WantedBy=multi-user.target
+ProtectHome=yes
+ReadWritePaths=/home/heverz/py_projects/monit-intel
+
+[Install]
+WantedBy=multi-user.target

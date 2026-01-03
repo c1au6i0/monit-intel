@@ -1,0 +1,14 @@
+[Unit]
+Description=Monit-Intel Ingest Timer (every 5 minutes)
+Documentation=https://github.com/heverz/monit-intel
+
+[Timer]
+# Run every 5 minutes
+OnBootSec=30sec
+OnUnitActiveSec=5min
+
+# If a run was missed, run it immediately when timer is restarted
+Persistent=true
+
+[Install]
+WantedBy=timers.target

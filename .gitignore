@@ -1,0 +1,31 @@
+# Database files
+monit_history.db
+
+# Environment files
+.env
+.env.local
+
+# Pixi environments
+.pixi
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
