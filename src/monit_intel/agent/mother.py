@@ -159,6 +159,57 @@ class Mother:
             "recent_failures": failures[:5]
         }
 
+    def get_historical_trends(self, days: int = 7) -> str:
+        """Get historical trend data for all services over the past N days."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get all services
+        cursor.execute("SELECT DISTINCT service_name FROM snapshots")
+        services = [row[0] for row in cursor.fetchall()]
+        
+        trends = []
+        for service in services:
+            # Count status changes
+            cursor.execute("""
+                SELECT status, COUNT(*) as count
+                FROM snapshots
+                WHERE service_name = ? AND timestamp >= datetime('now', '-' || ? || ' days')
+                GROUP BY status
+                ORDER BY status
+            """, (service, days))
+            
+            status_counts = cursor.fetchall()
+            
+            # Get latest status
+            cursor.execute("""
+                SELECT status, timestamp
+                FROM snapshots
+                WHERE service_name = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (service,))
+            
+            latest = cursor.fetchone()
+            if latest:
+                status = "HEALTHY" if latest[0] == 0 else "FAILED"
+                trends.append(f"  {service}: Currently {status}")
+                
+                # Add failure rate if there were failures
+                for status_val, count in status_counts:
+                    if status_val != 0:
+                        total = sum(c for _, c in status_counts)
+                        failure_rate = (count / total * 100) if total > 0 else 0
+                        trends.append(f"    - Failed {count} times in last {days} days ({failure_rate:.1f}% failure rate)")
+        
+        conn.close()
+        
+        if trends:
+            return "Service History (last " + str(days) + " days):\n" + "\n".join(trends)
+        else:
+            return "No historical data available yet."
+
+
     def query_agent(self, user_query: str) -> str:
         """
         Query the agent with context injection.
@@ -179,8 +230,11 @@ class Mother:
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
         
-        # Build context-enriched prompt
+        # Build context-enriched prompt with current status
         context_info = self._build_context_info(mentioned_services, service_context)
+        
+        # Add historical trend data
+        historical_info = self.get_historical_trends(days=7)
         
         # Invoke LLM directly with context
         try:
@@ -192,12 +246,13 @@ When recommending system updates or commands:
 - Use {self.system_info['package_manager']} commands, NOT other package managers
 - Use this command for updates: {self.system_info['update_command']}
 
-You have access to current service status information and can help diagnose issues, suggest actions, and explain system health.
+You have access to current service status information AND historical trend data over the past 7 days.
+When users ask about changes, trends, or history, refer to the historical data provided.
 Be concise, actionable, and focus on the most important information. Always tailor advice to the specific OS and package manager."""
             
             response = llm.invoke([
                 ("system", system_prompt),
-                ("user", f"{user_query}\n\n--- Current System Context ---\n{context_info}")
+                ("user", f"{user_query}\n\n--- Current System Status ---\n{context_info}\n\n--- Historical Trends (7 days) ---\n{historical_info}")
             ])
             
             response_text = response.content if hasattr(response, "content") else str(response)
@@ -206,7 +261,7 @@ Be concise, actionable, and focus on the most important information. Always tail
             response_text = f"Error analyzing query: {str(e)}"
         
         # Store conversation
-        self._store_conversation(user_query, response_text, context_info, mentioned_services)
+        self._store_conversation(user_query, response_text, context_info + "\n\n" + historical_info, mentioned_services)
         
         return response_text
 
