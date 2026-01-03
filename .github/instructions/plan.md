@@ -181,14 +181,14 @@ The agent uses this map to know where to look when a specific Monit check fails.
 
 ---
 
-## 🤖 6. Phase 6: Mother - Interactive Chat Interface ✅ COMPLETE
+## 🤖 6. Phase 6: MU/TH/UR - Interactive Chat Interface ✅ COMPLETE
 
-"Mother" is an interactive chat interface (CLI + Web UI) with OS-aware system context injection and direct LLM invocation.
+"MU/TH/UR" is an interactive chat interface (CLI + Web UI) with OS-aware system context injection and direct LLM invocation.
 
 ### Architecture
 ```
 ┌──────────────────────────────────────────────────────┐
-│   Mother Chat Layer                                  │
+│   MU/TH/UR Chat Layer                                │
 │   ├→ CLI: hello_mother.py (click-based interactive) │
 │   └→ Web UI: /chat (HTML/CSS/JS with WebSocket)    │
 └────────────┬─────────────────────────────────────────┘
@@ -224,10 +224,11 @@ The agent uses this map to know where to look when a specific Monit check fails.
 | **System Context Injection** | ✅ | Hostname, distro, package manager in every LLM prompt |
 | **Contextual Memory** | ✅ | Conversation history stored in SQLite (`conversations` table) |
 | **Service Status Context** | ✅ | Current service status retrieved and included |
-| **Web Chat UI** | ✅ | Responsive HTML/CSS/JavaScript with WebSocket connectivity |
+| **Web Chat UI** | ✅ | Responsive HTML/CSS/JavaScript with WebSocket connectivity, retro sci-fi aesthetic |
 | **CLI Chat** | ✅ | `hello_mother.py` for terminal-based interactive sessions |
-| **Direct LLM** | ✅ | Mother invokes Ollama directly for immediate, intelligent responses |
+| **Direct LLM** | ✅ | MU/TH/UR invokes Ollama directly for immediate, intelligent responses |
 | **Real-time Connection** | ✅ | WebSocket with auto-reconnect on disconnect |
+| **Hidden Easter Eggs** | ✅ | Special responses for fans of the source material |
 
 ### Database Schema
 

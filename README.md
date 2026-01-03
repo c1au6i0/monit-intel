@@ -104,7 +104,7 @@ systemctl list-timers monit-intel-ingest.timer
 - ✅ WebSocket chat available on `ws://localhost:8000/ws/chat`
 - ✅ Credentials loaded from secure drop-in EnvironmentFile
 
-## 💬 Web Chat Interface
+## 💬 MU/TH/UR Chat Interface
 
 ### Access the Chat UI
 
@@ -115,7 +115,8 @@ http://localhost:8000/chat
 ```
 
 **Features:**
-- ✅ Real-time bidirectional conversation with Mother
+- ✅ Real-time bidirectional conversation with MU/TH/UR
+- ✅ Retro sci-fi aesthetic with CRT terminal styling
 - ✅ Persistent WebSocket connection maintains context
 - ✅ OS-aware advice (auto-detects Ubuntu, Fedora, openSUSE, Arch, macOS)
 - ✅ System context injection (hostname, distro, package manager)
@@ -124,6 +125,7 @@ http://localhost:8000/chat
 - ✅ Execute system actions (restart services, check logs, etc.)
 - ✅ Automatic reconnection on disconnect
 - ✅ Full conversation history in-session
+- ✅ Phosphor green text on black background with scanline effects
 
 ### Chat Examples
 
@@ -262,19 +264,19 @@ Monit XML API (every 5 min)
      ↓
 Console output (skips LLM for unchanged failures)
 
-┌─ WEB CHAT INTERFACE ─────────────────────┐
-│  Browser → WebSocket (/ws/chat)          │
-│  ↓                                        │
-│  [Mother Chat Manager]                   │
-│  ├→ Auto-detect OS (Linux, Darwin, etc.) │
-│  ├→ Detect package manager (apt, dnf...)│
-│  ├→ Inject system context                │
-│  └→ LLM with OS-specific system prompt   │
-│  ↓                                        │
-│  [Agent Graph + Ollama LLM]               │
-│  ↓                                        │
-│  Browser (Real-time response)            │
-└──────────────────────────────────────────┘
+┌─ MU/TH/UR CHAT INTERFACE ──────────────┐
+│  Browser → WebSocket (/ws/chat)        │
+│  ↓                                      │
+│  [MU/TH/UR Chat Manager]               │
+│  ├→ Auto-detect OS                     │
+│  ├→ Detect package manager             │
+│  ├→ Inject system context              │
+│  └→ LLM with OS-specific prompt        │
+│  ↓                                      │
+│  [Ollama Llama 3.1:8b]                 │
+│  ↓                                      │
+│  Browser (Real-time response)          │
+└───────────────────────────────────────┘
 ```
 
 ### System Architecture Diagram

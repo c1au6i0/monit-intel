@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello Mother - Chat</title>
+    <title>MU/TH/UR - System Query Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,86 +13,152 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Share Tech Mono', monospace;
+            background: #0a0e27;
+            background-image: 
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 65, 0.08) 25%, rgba(0, 255, 65, 0.08) 26%, transparent 27%, transparent 74%, rgba(0, 255, 65, 0.08) 75%, rgba(0, 255, 65, 0.08) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 65, 0.08) 25%, rgba(0, 255, 65, 0.08) 26%, transparent 27%, transparent 74%, rgba(0, 255, 65, 0.08) 75%, rgba(0, 255, 65, 0.08) 76%, transparent 77%, transparent);
+            background-size: 50px 50px;
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 20px;
+            color: #00ff41;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
         }
 
         .container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            background: #0f1419;
+            border: 3px solid #00ff41;
+            box-shadow: 
+                0 0 20px rgba(0, 255, 65, 0.4),
+                inset 0 0 20px rgba(0, 255, 65, 0.05),
+                inset 0 0 0 1px rgba(0, 255, 65, 0.2);
             width: 100%;
-            max-width: 600px;
-            height: 80vh;
+            max-width: 800px;
+            height: 90vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            position: relative;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 65, 0.05) 25%, rgba(0, 255, 65, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 65, 0.05) 75%, rgba(0, 255, 65, 0.05) 76%, transparent 77%, transparent);
+            background-size: 100% 4px;
+            pointer-events: none;
+            animation: scanlines 8s linear infinite;
+            z-index: 1;
+        }
+
+        @keyframes scanlines {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(10px); }
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(180deg, rgba(0, 255, 65, 0.1) 0%, transparent 100%);
+            border-bottom: 2px solid #00ff41;
             padding: 20px;
             text-align: center;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            position: relative;
+            z-index: 2;
         }
 
         .header h1 {
-            font-size: 24px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: 4px;
             margin-bottom: 5px;
+            text-transform: uppercase;
+            color: #00ff41;
+            text-shadow: 0 0 20px rgba(0, 255, 65, 0.8), 0 0 40px rgba(0, 255, 65, 0.4);
         }
 
         .header p {
-            font-size: 12px;
-            opacity: 0.9;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #00cc33;
         }
 
         .status {
             display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #4ade80;
+            width: 10px;
+            height: 10px;
+            background: #00ff41;
             border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 2s infinite;
+            margin-right: 10px;
+            box-shadow: 0 0 10px #00ff41;
+            animation: pulse-glow 2s infinite;
         }
 
         .status.disconnected {
-            background: #ef4444;
+            background: #ff4444;
+            box-shadow: 0 0 10px #ff4444;
             animation: none;
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        @keyframes pulse-glow {
+            0%, 100% { 
+                opacity: 1;
+                box-shadow: 0 0 10px #00ff41, 0 0 20px rgba(0, 255, 65, 0.5);
+            }
+            50% { 
+                opacity: 0.6;
+                box-shadow: 0 0 5px #00ff41, 0 0 10px rgba(0, 255, 65, 0.3);
+            }
         }
 
         .chat-box {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            background: #f9fafb;
+            background: #0a0e27;
+            position: relative;
+            z-index: 2;
+            scrollbar-width: thin;
+            scrollbar-color: #00ff41 #1a1f3a;
+        }
+
+        .chat-box::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .chat-box::-webkit-scrollbar-track {
+            background: #1a1f3a;
+            border-left: 1px solid #00ff41;
+        }
+
+        .chat-box::-webkit-scrollbar-thumb {
+            background: #00ff41;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
         }
 
         .message {
             margin-bottom: 15px;
             display: flex;
-            animation: slideIn 0.3s ease-out;
+            animation: slideIn 0.4s ease-out;
         }
 
         @keyframes slideIn {
             from {
                 opacity: 0;
-                transform: translateY(10px);
+                transform: translateX(-20px);
             }
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateX(0);
             }
         }
 
@@ -105,58 +172,71 @@
 
         .message.system {
             justify-content: center;
+            opacity: 0.7;
         }
 
         .message-content {
             max-width: 70%;
             padding: 12px 16px;
-            border-radius: 12px;
-            font-size: 14px;
-            line-height: 1.5;
+            border: 1px solid #00ff41;
+            font-size: 13px;
+            line-height: 1.6;
+            position: relative;
         }
 
         .message.user .message-content {
-            background: #667eea;
-            color: white;
-            border-bottom-right-radius: 4px;
+            background: rgba(0, 255, 65, 0.1);
+            border-color: #00ff41;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+            border-right: none;
+            color: #00ff41;
         }
 
         .message.agent .message-content {
-            background: #e5e7eb;
-            color: #1f2937;
-            border-bottom-left-radius: 4px;
+            background: rgba(0, 200, 100, 0.05);
+            border-color: #00cc33;
+            box-shadow: 0 0 10px rgba(0, 200, 100, 0.2);
+            border-left: none;
+            color: #00cc33;
         }
 
         .message.system .message-content {
             background: transparent;
-            color: #6b7280;
-            font-size: 12px;
-            font-style: italic;
+            border: none;
+            color: #00aa22;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .message-time {
-            font-size: 11px;
-            color: #9ca3af;
-            margin-top: 4px;
+            font-size: 10px;
+            color: #00aa22;
+            margin-top: 6px;
             padding: 0 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .typing {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             padding: 12px 16px;
-            background: #e5e7eb;
-            border-radius: 12px;
+            background: rgba(0, 200, 100, 0.08);
+            border: 1px solid #00cc33;
+            border-left: none;
             width: fit-content;
+            color: #00cc33;
         }
 
         .typing-dot {
-            width: 8px;
-            height: 8px;
-            background: #6b7280;
-            border-radius: 50%;
+            width: 6px;
+            height: 6px;
+            background: #00ff41;
+            display: inline-block;
             animation: typing 1.4s infinite;
+            box-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
         }
 
         .typing-dot:nth-child(2) {
@@ -173,69 +253,94 @@
         }
 
         .input-area {
-            border-top: 1px solid #e5e7eb;
+            border-top: 2px solid #00ff41;
             padding: 16px;
-            background: white;
+            background: rgba(0, 255, 65, 0.05);
             display: flex;
             gap: 10px;
             align-items: flex-end;
+            position: relative;
+            z-index: 2;
         }
 
         input[type="text"] {
             flex: 1;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #00ff41;
+            color: #00ff41;
             padding: 12px;
-            font-size: 14px;
-            font-family: inherit;
-            transition: border-color 0.2s;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 13px;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+            transition: all 0.3s;
+        }
+
+        input[type="text"]::placeholder {
+            color: #00aa22;
+            opacity: 0.6;
         }
 
         input[type="text"]:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #00ff41;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.5), inset 0 0 10px rgba(0, 255, 65, 0.1);
+            background: rgba(10, 14, 39, 0.95);
         }
 
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        button:disabled {
+        input[type="text"]:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
 
+        button {
+            background: rgba(0, 255, 65, 0.1);
+            color: #00ff41;
+            border: 1px solid #00ff41;
+            padding: 12px 24px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+        }
+
+        button:hover:not(:disabled) {
+            background: rgba(0, 255, 65, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5), inset 0 0 10px rgba(0, 255, 65, 0.1);
+            text-shadow: 0 0 20px rgba(0, 255, 65, 0.8);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
         .error {
-            background: #fee2e2;
-            color: #991b1b;
-            border-left: 4px solid #dc2626;
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff6666;
+            border: 1px solid #ff4444;
+            border-left: 3px solid #ff4444;
             padding: 12px;
             margin-bottom: 10px;
-            border-radius: 4px;
-            font-size: 13px;
+            font-size: 12px;
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.2);
+            text-shadow: 0 0 5px rgba(255, 68, 68, 0.3);
         }
 
         .action-suggestion {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
+            background: rgba(255, 200, 0, 0.05);
+            border: 1px solid #ffcc00;
+            border-left: 3px solid #ffcc00;
             padding: 12px;
             margin-bottom: 10px;
-            border-radius: 4px;
-            font-size: 13px;
+            font-size: 12px;
+            color: #ffdd66;
+            box-shadow: 0 0 10px rgba(255, 200, 0, 0.2);
+            text-shadow: 0 0 5px rgba(255, 200, 0, 0.3);
         }
 
         .action-buttons {
@@ -247,30 +352,34 @@
         .action-buttons button {
             flex: 1;
             padding: 8px 12px;
-            font-size: 12px;
+            font-size: 11px;
         }
 
         .success {
-            background: #dcfce7;
-            color: #166534;
-            border-left: 4px solid #22c55e;
+            background: rgba(0, 255, 65, 0.1);
+            color: #00ff41;
+            border: 1px solid #00ff41;
+            border-left: 3px solid #00ff41;
             padding: 12px;
             margin-bottom: 10px;
-            border-radius: 4px;
-            font-size: 13px;
+            font-size: 12px;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
         }
 
         .command-output {
-            background: #1f2937;
-            color: #10b981;
+            background: rgba(0, 0, 0, 0.5);
+            color: #00ff41;
             padding: 12px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            overflow-x: auto;
             margin-top: 8px;
+            border: 1px solid #00aa22;
+            border-left: 3px solid #00ff41;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 11px;
+            overflow-x: auto;
             white-space: pre-wrap;
             word-break: break-word;
+            box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.05);
         }
 
         .hidden {
@@ -281,17 +390,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Hello Mother</h1>
+            <h1>⚙ MU/TH/UR ⚙</h1>
             <p>
                 <span class="status" id="status"></span>
-                <span id="status-text">Connecting...</span>
+                <span id="status-text">INITIALIZING...</span>
             </p>
         </div>
 
         <div class="chat-box" id="chatBox">
             <div class="message system">
                 <div class="message-content">
-                    Welcome to Hello Mother! Ask me anything about your systems.
+                    > MOTHER SYSTEM ONLINE<br>
+                    > AWAITING COMMAND
                 </div>
             </div>
         </div>
@@ -300,10 +410,10 @@
             <input
                 type="text"
                 id="messageInput"
-                placeholder="Ask me about system health, failures, or ask me to execute actions..."
+                placeholder="> AWAITING INPUT..."
                 disabled
             >
-            <button id="sendBtn" disabled>Send</button>
+            <button id="sendBtn" disabled>SEND</button>
         </div>
     </div>
 
@@ -327,7 +437,7 @@
             ws.onopen = () => {
                 isConnected = true;
                 statusEl.classList.remove('disconnected');
-                statusText.textContent = 'Connected';
+                statusText.textContent = 'ONLINE';
                 messageInput.disabled = false;
                 sendBtn.disabled = false;
                 console.log('WebSocket connected');
@@ -341,13 +451,13 @@
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
                 statusEl.classList.add('disconnected');
-                statusText.textContent = 'Error';
+                statusText.textContent = 'ERROR';
             };
 
             ws.onclose = () => {
                 isConnected = false;
                 statusEl.classList.add('disconnected');
-                statusText.textContent = 'Disconnected';
+                statusText.textContent = 'DISCONNECTED';
                 messageInput.disabled = true;
                 sendBtn.disabled = true;
                 console.log('WebSocket disconnected');
@@ -362,7 +472,7 @@
 
             switch (type) {
                 case 'thinking':
-                    addMessage('system', data.message);
+                    addMessage('system', `> ${data.message}`);
                     break;
 
                 case 'response':
@@ -370,7 +480,7 @@
                     break;
 
                 case 'error':
-                    addErrorMessage(data.message);
+                    addErrorMessage(`ERROR: ${data.message}`);
                     break;
 
                 case 'action_suggestion':
@@ -379,17 +489,17 @@
 
                 case 'action_result':
                     if (data.success) {
-                        addSuccessMessage(`Action executed (exit code: ${data.exit_code})`);
+                        addSuccessMessage(`ACTION EXECUTED (EXIT CODE: ${data.exit_code})`);
                         if (data.output) {
                             addCommandOutput(data.output);
                         }
                     } else {
-                        addErrorMessage(`Action failed: ${data.error}`);
+                        addErrorMessage(`ACTION FAILED: ${data.error}`);
                     }
                     break;
 
                 case 'history':
-                    addMessage('system', `Retrieved ${data.conversations.length} past conversations`);
+                    addMessage('system', `> RETRIEVED ${data.conversations.length} CONVERSATIONS`);
                     break;
 
                 default:
@@ -409,7 +519,8 @@
 
             const timeEl = document.createElement('div');
             timeEl.className = 'message-time';
-            timeEl.textContent = new Date().toLocaleTimeString();
+            const now = new Date();
+            timeEl.textContent = `[${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
 
             messageEl.appendChild(timeEl);
 
@@ -445,14 +556,14 @@
             const suggestionEl = document.createElement('div');
             suggestionEl.className = 'action-suggestion';
             suggestionEl.innerHTML = `
-                <strong>Action Suggestion:</strong><br>
-                Action: ${data.action}<br>
-                Service: ${data.service}<br>
-                Command: <code>${data.command}</code><br>
+                <strong>ACTION SUGGESTION:</strong><br>
+                ACTION: ${data.action.toUpperCase()}<br>
+                SERVICE: ${data.service.toUpperCase()}<br>
+                COMMAND: <code>${data.command}</code><br>
                 ${data.description}<br>
                 <div class="action-buttons">
-                    <button onclick="confirmAction('${data.action}', '${data.service}')">Execute</button>
-                    <button onclick="cancelAction()">Cancel</button>
+                    <button onclick="confirmAction('${data.action}', '${data.service}')">EXECUTE</button>
+                    <button onclick="cancelAction()">CANCEL</button>
                 </div>
             `;
             chatBox.appendChild(suggestionEl);
@@ -485,7 +596,7 @@
         }
 
         function cancelAction() {
-            addMessage('system', 'Action cancelled');
+            addMessage('system', '> ACTION CANCELLED');
         }
 
         // Event listeners

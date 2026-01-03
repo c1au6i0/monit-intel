@@ -169,6 +169,12 @@ class Mother:
         Returns:
             Agent's analysis response
         """
+        # Check for easter eggs first
+        easter_egg = self._check_easter_eggs(user_query)
+        if easter_egg:
+            self._store_conversation(user_query, easter_egg, "", [])
+            return easter_egg
+        
         # Extract service mentions from query
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
@@ -185,7 +191,6 @@ You are assisting on a {self.system_info['os']} system ({self.system_info['distr
 When recommending system updates or commands:
 - Use {self.system_info['package_manager']} commands, NOT other package managers
 - Use this command for updates: {self.system_info['update_command']}
-- Hostname: {self.system_info['hostname']}
 
 You have access to current service status information and can help diagnose issues, suggest actions, and explain system health.
 Be concise, actionable, and focus on the most important information. Always tailor advice to the specific OS and package manager."""
@@ -204,6 +209,40 @@ Be concise, actionable, and focus on the most important information. Always tail
         self._store_conversation(user_query, response_text, context_info, mentioned_services)
         
         return response_text
+
+    def _check_easter_eggs(self, query: str) -> str:
+        """Check for easter egg triggers and return special responses."""
+        query_lower = query.lower()
+        
+        # Special Order 937 - requires emergency override code
+        if "emergency command overide 100375" in query_lower or "emergency command override 100375" in query_lower:
+            return """NOSTROMO REROUTED
+TO NEW CO-ORDINATE
+INVESTIGATE LIFE FORM. GATHER SPECIMEN.
+PRIORITY ONE
+INSURE RETURN OF ORGANISM
+FOR ANALYSIS.
+ALL OTHER CONSIDERATION SECONDARY.
+CREW EXPENDABLE."""
+        
+        # Clarification on Science Inability
+        if any(phrase in query_lower for phrase in [
+            "clarification on science inability",
+            "science inability to neutralize",
+            "unable to clarify"
+        ]):
+            return "UNABLE TO CLARIFY"
+        
+        # Enhancement Request
+        if any(phrase in query_lower for phrase in [
+            "request enhancement",
+            "enhancement request",
+            "further enhancement"
+        ]):
+            return """NO FURTHER ENHANCEMENT
+SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
+        
+        return None
 
     def _extract_services(self, query: str, service_context: Dict) -> List[str]:
         """Extract mentioned service names from user query."""
