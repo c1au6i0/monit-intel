@@ -126,6 +126,7 @@ http://localhost:8000/chat
 - ✅ Automatic reconnection on disconnect
 - ✅ Full conversation history in-session
 - ✅ Phosphor green text on black background with scanline effects
+- ✅ **30-day historical trend analysis** - MU/TH/UR can answer "Did we have failures?" with actual data
 
 ### Chat Examples
 
@@ -157,6 +158,21 @@ curl -X POST http://localhost:8000/mother/chat \
 # }
 ```
 
+**Historical Trend Query (30-day analysis):**
+```bash
+curl -X POST http://localhost:8000/mother/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Did we have any failures in the past month?"}'
+
+# Response:
+# {
+#   "query": "Did we have any failures in the past month?",
+#   "response": "Based on the historical trend data over the past 30 days, I noticed that the `alpha` service 
+#   has been failing consistently with a 100% failure rate. This indicates a persistent issue that needs attention.",
+#   "timestamp": "2026-01-03T13:45:22.123456"
+# }
+```
+
 **Via Web UI (WebSocket):**
 ```
 User: "Why is docker unhealthy?"
@@ -167,6 +183,10 @@ However, I'd like to highlight a few potential future issues: [Outdated Docker v
 User: "What should I monitor for sshd?"
 Mother: "For SSH security and stability, monitor: Failed login attempts, Connection rate limits, 
 Resource usage, Configuration changes, Certificate/key validity..."
+
+User: "Did we have failures recently?"
+Mother: "Yes. Based on the 30-day historical data, the alpha service has failed 5 times (100% failure rate). 
+All other services remain healthy. I recommend investigating the root cause..."
 
 User: "What's the overall system health?"
 Mother: "All services are currently healthy: docker ✓, sshd ✓, zfs-zed ✓. 
