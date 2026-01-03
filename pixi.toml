@@ -19,6 +19,8 @@ pandas = "*"
 schedule = "*"
 fastapi = "*"
 uvicorn = "*"
+click = "*"
+tabulate = "*"
 
 [tasks]
 ingest = "python ingest.py"

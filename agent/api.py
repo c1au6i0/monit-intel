@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from agent.graph import build_graph
+from agent.mother import Mother
+from agent.actions import ActionExecutor, ActionType
 from tools import get_service_logs
 
 app = FastAPI(
@@ -15,6 +17,10 @@ app = FastAPI(
     description="Query and analyze server health via REST API",
     version="1.0.0"
 )
+
+# Initialize Mother and ActionExecutor
+mother = Mother()
+action_executor = ActionExecutor()
 
 
 class AnalysisRequest(BaseModel):
@@ -32,6 +38,16 @@ class AnalysisResponse(BaseModel):
     service: str
     analysis: str
     timestamp: str
+
+
+class MotherChatRequest(BaseModel):
+    query: str
+
+
+class ActionRequest(BaseModel):
+    action: str
+    service: str
+    approve: bool = False
 
 
 @app.get("/")
@@ -198,6 +214,124 @@ def get_logs(service: str):
     
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ============================================================================
+# MOTHER: Interactive Chat Interface (Phase 6)
+# ============================================================================
+
+@app.post("/mother/chat")
+def mother_chat(request: MotherChatRequest):
+    """
+    Query the agent using natural language via Mother chat interface.
+    Automatically injects service context and failure history.
+    """
+    try:
+        response = mother.query_agent(request.query)
+        
+        return {
+            "query": request.query,
+            "response": response,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+
+
+@app.get("/mother/history")
+def mother_history(limit: int = 10):
+    """Get conversation history from Mother."""
+    try:
+        history = mother.get_history(limit=limit)
+        
+        return {
+            "count": len(history),
+            "conversations": history
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.delete("/mother/clear")
+def mother_clear():
+    """Clear all conversation history."""
+    try:
+        mother.clear_history()
+        
+        return {
+            "status": "cleared",
+            "message": "All conversation history has been deleted"
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ============================================================================
+# ACTIONS: Safe Command Execution (Phase 7)
+# ============================================================================
+
+@app.post("/mother/actions/suggest")
+def suggest_action(request: ActionRequest):
+    """
+    Suggest an action without executing it.
+    User can review and approve before execution.
+    """
+    try:
+        action_type = ActionType[request.action.upper()]
+        suggestion = action_executor.suggest_action(action_type, request.service)
+        
+        return suggestion
+    
+    except KeyError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action: {request.action}. Valid actions: {[a.name for a in ActionType]}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/mother/actions/execute")
+def execute_action(request: ActionRequest):
+    """
+    Execute a safe action with user approval.
+    Returns execution result and logs to audit trail.
+    """
+    try:
+        action_type = ActionType[request.action.upper()]
+        result = action_executor.execute_action(
+            action_type,
+            request.service,
+            user_approved=request.approve
+        )
+        
+        return result
+    
+    except KeyError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action: {request.action}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/mother/actions/audit")
+def get_audit_log(limit: int = 50):
+    """Get action audit log (all executed commands)."""
+    try:
+        logs = action_executor.get_audit_log(limit=limit)
+        
+        return {
+            "count": len(logs),
+            "audit_log": logs
+        }
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
