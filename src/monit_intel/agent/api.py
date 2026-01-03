@@ -6,7 +6,9 @@ Provides interactive interface to query and analyze service failures.
 import sqlite3
 import json
 import asyncio
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import os
+import base64
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -15,6 +17,33 @@ from .graph import build_graph
 from .mother import Mother
 from .actions import ActionExecutor, ActionType
 from ..tools.log_reader import LogReader
+
+# Load credentials from environment (same as Monit)
+MONIT_USER = os.getenv("MONIT_USER", "admin")
+MONIT_PASS = os.getenv("MONIT_PASS", "monit")
+
+
+def verify_auth(authorization: str = Header(None)) -> str:
+    """Verify HTTP Basic Authentication against Monit credentials."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    
+    try:
+        scheme, credentials = authorization.split(" ")
+        if scheme.lower() != "basic":
+            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+        
+        decoded = base64.b64decode(credentials).decode("utf-8")
+        username, password = decoded.split(":", 1)
+        
+        if username != MONIT_USER or password != MONIT_PASS:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        return username
+    
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=401, detail="Invalid credentials format")
+
 
 app = FastAPI(
     title="Monit-Intel Agent API",
@@ -227,10 +256,11 @@ def get_logs(service: str):
 # ============================================================================
 
 @app.post("/mother/chat")
-def mother_chat(request: MotherChatRequest):
+def mother_chat(request: MotherChatRequest, _: str = Depends(verify_auth)):
     """
     Query the agent using natural language via Mother chat interface.
     Automatically injects service context and failure history.
+    Requires HTTP Basic Authentication (same as Monit credentials).
     """
     try:
         response = mother.query_agent(request.query)
@@ -246,8 +276,8 @@ def mother_chat(request: MotherChatRequest):
 
 
 @app.get("/mother/history")
-def mother_history(limit: int = 10):
-    """Get conversation history from Mother."""
+def mother_history(limit: int = 10, _: str = Depends(verify_auth)):
+    """Get conversation history from Mother. Requires authentication."""
     try:
         history = mother.get_history(limit=limit)
         
@@ -261,8 +291,8 @@ def mother_history(limit: int = 10):
 
 
 @app.delete("/mother/clear")
-def mother_clear():
-    """Clear all conversation history."""
+def mother_clear(_: str = Depends(verify_auth)):
+    """Clear all conversation history. Requires authentication."""
     try:
         mother.clear_history()
         
@@ -280,10 +310,11 @@ def mother_clear():
 # ============================================================================
 
 @app.post("/mother/actions/suggest")
-def suggest_action(request: ActionRequest):
+def suggest_action(request: ActionRequest, _: str = Depends(verify_auth)):
     """
     Suggest an action without executing it.
     User can review and approve before execution.
+    Requires authentication.
     """
     try:
         action_type = ActionType[request.action.upper()]
@@ -301,10 +332,11 @@ def suggest_action(request: ActionRequest):
 
 
 @app.post("/mother/actions/execute")
-def execute_action(request: ActionRequest):
+def execute_action(request: ActionRequest, _: str = Depends(verify_auth)):
     """
     Execute a safe action with user approval.
     Returns execution result and logs to audit trail.
+    Requires authentication.
     """
     try:
         action_type = ActionType[request.action.upper()]
@@ -326,8 +358,8 @@ def execute_action(request: ActionRequest):
 
 
 @app.get("/mother/actions/audit")
-def get_audit_log(limit: int = 50):
-    """Get action audit log (all executed commands)."""
+def get_audit_log(limit: int = 50, _: str = Depends(verify_auth)):
+    """Get action audit log (all executed commands). Requires authentication."""
     try:
         logs = action_executor.get_audit_log(limit=limit)
         
@@ -372,6 +404,7 @@ manager = ConnectionManager()
 async def websocket_chat(websocket: WebSocket):
     """
     WebSocket endpoint for bidirectional chat with Mother.
+    Requires HTTP Basic Authentication via query parameter: ?auth=base64_credentials
     
     Message format:
     {
@@ -380,6 +413,24 @@ async def websocket_chat(websocket: WebSocket):
         "action": "execute_command" (optional)
     }
     """
+    # Verify auth from query parameter
+    auth_param = websocket.query_params.get("auth")
+    if not auth_param:
+        await websocket.close(code=4001, reason="Missing authentication")
+        return
+    
+    try:
+        decoded = base64.b64decode(auth_param).decode("utf-8")
+        username, password = decoded.split(":", 1)
+        
+        if username != MONIT_USER or password != MONIT_PASS:
+            await websocket.close(code=4001, reason="Invalid credentials")
+            return
+    
+    except (ValueError, UnicodeDecodeError):
+        await websocket.close(code=4001, reason="Invalid credentials format")
+        return
+    
     await manager.connect(websocket)
     
     try:

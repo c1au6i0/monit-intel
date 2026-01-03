@@ -119,6 +119,88 @@
             }
         }
 
+        .login-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 20, 25, 0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            flex-direction: column;
+        }
+
+        .login-form {
+            background: #0f1419;
+            border: 3px solid #00ff41;
+            padding: 40px;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.5), inset 0 0 30px rgba(0, 255, 65, 0.05);
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .login-form h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            letter-spacing: 2px;
+            color: #00ff41;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        .login-form p {
+            color: #00cc33;
+            margin-bottom: 20px;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .login-form input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            background: #0a0e27;
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .login-form input:focus {
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+            background: #0f1419;
+        }
+
+        .login-form input::placeholder {
+            color: #007722;
+        }
+
+        .login-form button {
+            width: 100%;
+            padding: 12px;
+            background: #00ff41;
+            border: 2px solid #00ff41;
+            color: #0f1419;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .login-form button:hover {
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.8);
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+        }
+
         .chat-box {
             flex: 1;
             overflow-y: auto;
@@ -389,6 +471,28 @@
 </head>
 <body>
     <div class="container">
+        <!-- Login Overlay -->
+        <div id="loginOverlay" class="login-overlay" style="display: flex;">
+            <div class="login-form">
+                <h2>MU/TH/UR ACCESS REQUIRED</h2>
+                <p>Please provide Monit credentials to continue</p>
+                <input
+                    type="text"
+                    id="loginUsername"
+                    placeholder="USERNAME"
+                    autocomplete="username"
+                >
+                <input
+                    type="password"
+                    id="loginPassword"
+                    placeholder="PASSWORD"
+                    autocomplete="current-password"
+                >
+                <button id="loginBtn">AUTHENTICATE</button>
+                <p id="loginError" style="color: #ff0000; margin-top: 10px; display: none;"></p>
+            </div>
+        </div>
+
         <div class="header">
             <h1>⚙ MU/TH/UR ⚙</h1>
             <p>
@@ -423,16 +527,86 @@
         const sendBtn = document.getElementById('sendBtn');
         const statusEl = document.getElementById('status');
         const statusText = document.getElementById('status-text');
+        const loginOverlay = document.getElementById('loginOverlay');
+        const loginUsername = document.getElementById('loginUsername');
+        const loginPassword = document.getElementById('loginPassword');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginError = document.getElementById('loginError');
 
         let ws = null;
         let isConnected = false;
+        let authCredentials = null;
+
+        // Check if credentials are stored in localStorage
+        const storedAuth = localStorage.getItem('muthur_auth');
+        if (storedAuth) {
+            authCredentials = storedAuth;
+            loginOverlay.style.display = 'none';
+            initializeChat();
+        }
+
+        // Handle login
+        loginBtn.addEventListener('click', handleLogin);
+        loginPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+
+        function handleLogin() {
+            const username = loginUsername.value.trim();
+            const password = loginPassword.value.trim();
+
+            if (!username || !password) {
+                showLoginError('Please enter username and password');
+                return;
+            }
+
+            // Create Basic Auth header
+            const authString = `${username}:${password}`;
+            const encodedAuth = btoa(authString);
+            authCredentials = encodedAuth;
+
+            // Test credentials with a simple API call
+            fetch('/health', {
+                headers: {
+                    'Authorization': `Basic ${authCredentials}`
+                }
+            })
+            .then(response => {
+                if (response.status === 401) {
+                    showLoginError('Invalid credentials');
+                    authCredentials = null;
+                } else {
+                    // Store auth in localStorage
+                    localStorage.setItem('muthur_auth', authCredentials);
+                    loginError.style.display = 'none';
+                    loginOverlay.style.display = 'none';
+                    initializeChat();
+                }
+            })
+            .catch(error => {
+                showLoginError('Connection error: ' + error.message);
+            });
+        }
+
+        function showLoginError(message) {
+            loginError.textContent = message;
+            loginError.style.display = 'block';
+        }
+
+        function initializeChat() {
+            connectWebSocket();
+            messageInput.focus();
+        }
 
         // Determine WebSocket URL
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
 
         function connectWebSocket() {
-            ws = new WebSocket(wsUrl);
+            // Include auth in WebSocket URL
+            const authParam = encodeURIComponent(authCredentials);
+            const wsUrlWithAuth = `${wsUrl}?auth=${authParam}`;
+            ws = new WebSocket(wsUrlWithAuth);
 
             ws.onopen = () => {
                 isConnected = true;
