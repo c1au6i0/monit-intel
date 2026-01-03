@@ -11,8 +11,9 @@ A **LangGraph + Llama 3.1** powered agent that monitors server health via Monit,
 
 ### Environment Setup
 
+**Option 1: Development (local .env file)**
 ```bash
-# Configure credentials in .env
+# Create .env for local development
 cat > .env << EOF
 MONIT_USER=admin
 MONIT_PASS=your_password
@@ -22,6 +23,42 @@ EOF
 # Install dependencies
 pixi install
 ```
+
+**Option 3: Production (systemd EnvironmentFile - RECOMMENDED)**
+
+Credentials are stored securely in systemd drop-in files (not in git):
+
+```bash
+# Create systemd environment files (run once during setup)
+sudo mkdir -p /etc/systemd/system/monit-intel-{agent,ingest}.service.d/
+
+sudo tee /etc/systemd/system/monit-intel-agent.service.d/env.conf > /dev/null << EOF
+[Service]
+Environment="MONIT_USER=admin"
+Environment="MONIT_PASS=your_password"
+Environment="MONIT_URL=http://localhost:2812/_status?format=xml"
+EOF
+
+sudo tee /etc/systemd/system/monit-intel-ingest.service.d/env.conf > /dev/null << EOF
+[Service]
+Environment="MONIT_USER=admin"
+Environment="MONIT_PASS=your_password"
+Environment="MONIT_URL=http://localhost:2812/_status?format=xml"
+EOF
+
+# Restrict to root only
+sudo chmod 600 /etc/systemd/system/monit-intel-*/service.d/env.conf
+
+# Reload and restart services
+sudo systemctl daemon-reload
+sudo systemctl restart monit-intel-agent.service
+```
+
+**Benefits of Option 3:**
+- ✅ Credentials NOT in project folder
+- ✅ Credentials NOT in git history
+- ✅ Only systemd process can read (chmod 600)
+- ✅ Easy to rotate without redeploying code
 
 ### Manual Run Commands
 
@@ -41,6 +78,10 @@ pixi run python main.py --api 5 8000
 
 ### Production Deployment (Systemd)
 
+**Prerequisites:**
+- Set up systemd environment files with credentials (see "Environment Setup" above)
+
+**Install services:**
 ```bash
 # Install systemd services for auto-startup on boot
 sudo bash /home/heverz/py_projects/monit-intel/install-services.sh
@@ -61,6 +102,7 @@ systemctl list-timers monit-intel-ingest.timer
 - ✅ Ingest timer triggers every 5 minutes
 - ✅ Auto-restart on crash with 10-sec backoff
 - ✅ REST API always available on `localhost:8000`
+- ✅ Credentials loaded from secure drop-in EnvironmentFile
 
 ## 🏗️ Architecture
 
