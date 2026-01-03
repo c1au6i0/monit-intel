@@ -234,7 +234,7 @@ class Mother:
         context_info = self._build_context_info(mentioned_services, service_context)
         
         # Add historical trend data
-        historical_info = self.get_historical_trends(days=7)
+        historical_info = self.get_historical_trends(days=30)
         
         # Invoke LLM directly with context
         try:
@@ -246,13 +246,13 @@ When recommending system updates or commands:
 - Use {self.system_info['package_manager']} commands, NOT other package managers
 - Use this command for updates: {self.system_info['update_command']}
 
-You have access to current service status information AND historical trend data over the past 7 days.
+You have access to current service status information AND historical trend data over the past 30 days.
 When users ask about changes, trends, or history, refer to the historical data provided.
 Be concise, actionable, and focus on the most important information. Always tailor advice to the specific OS and package manager."""
             
             response = llm.invoke([
                 ("system", system_prompt),
-                ("user", f"{user_query}\n\n--- Current System Status ---\n{context_info}\n\n--- Historical Trends (7 days) ---\n{historical_info}")
+                ("user", f"{user_query}\n\n--- Current System Status ---\n{context_info}\n\n--- Historical Trends (30 days) ---\n{historical_info}")
             ])
             
             response_text = response.content if hasattr(response, "content") else str(response)
