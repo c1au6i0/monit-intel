@@ -249,6 +249,120 @@ curl "http://localhost:8000/history?service=system_backup&days=7"
 curl http://localhost:8000/logs/nordvpn_status | jq '.logs' | head -20
 ```
 
+## 👩‍💻 Mother: Interactive Chat Interface (Phase 6)
+
+**Mother** is an interactive chat interface that lets you query the agent in natural language. It automatically injects service context and failure history into the LLM prompt.
+
+### Mother REST API Endpoints
+
+| Method | Endpoint | Purpose | Example |
+|--------|----------|---------|---------|
+| `POST` | `/mother/chat` | Chat with agent | `curl -X POST http://localhost:8000/mother/chat -H "Content-Type: application/json" -d '{"query": "Why is system_backup failing?"}'` |
+| `GET` | `/mother/history` | View conversations | `curl http://localhost:8000/mother/history?limit=10` |
+| `DELETE` | `/mother/clear` | Clear chat history | `curl -X DELETE http://localhost:8000/mother/clear` |
+
+### Mother CLI
+
+Use the interactive Mother CLI for a better UX:
+
+```bash
+# Chat with the agent
+pixi run python mother-cli.py chat "Why is nordvpn_status failing?"
+
+# View conversation history
+pixi run python mother-cli.py history --limit 20
+
+# Clear all conversations
+pixi run python mother-cli.py clear
+
+# Interactive mode (type 'help' for commands)
+pixi run python mother-cli.py interactive
+```
+
+### How Mother Works
+
+1. **Context Injection**: Extracts mentioned services from your query
+2. **Status Lookup**: Fetches current service status and failure history
+3. **Log Retrieval**: Uses LogReader to fetch relevant logs
+4. **LLM Analysis**: Passes enriched context to Llama 3.1 for analysis
+5. **Conversation Persistence**: Stores all chats in SQLite for history
+
+**Example conversation:**
+```
+You: "Why is system_backup failing?"
+
+Agent: [Analyzes current system_backup status, fetches last 150 lines of logs, 
+        queries failure history over last 7 days, and provides root cause analysis]
+
+Agent Response: "system_backup has failed 3 times in the last 7 days. The most 
+recent failure shows disk space exhaustion in /data/tank. The backup_log 
+indicates the backup process timed out after 4 hours when trying to sync 
+2.5TB of data. Recommendation: Expand storage or increase timeout threshold."
+```
+
+---
+
+## 🛠️ Actions: Safe Command Execution (Phase 7)
+
+**Actions** allow the agent to suggest AND execute safe system commands for remediation. All actions are whitelisted, require user approval, and logged for audit.
+
+### Safe Actions Whitelist
+
+| Action | Command | Use Case |
+|--------|---------|----------|
+| `systemctl_restart` | `systemctl restart <service>` | Recover from transient failures |
+| `systemctl_stop` | `systemctl stop <service>` | Prevent cascading failures |
+| `systemctl_start` | `systemctl start <service>` | Bring service online |
+| `systemctl_status` | `systemctl status <service>` | Get detailed systemd state |
+| `monit_monitor` | `sudo monit monitor <service>` | Force Monit re-check |
+| `monit_start` | `sudo monit start <service>` | Tell Monit to bring online |
+| `monit_stop` | `sudo monit stop <service>` | Tell Monit to stop watching |
+| `journalctl_view` | `journalctl -u <service> -n 50` | View service logs |
+
+### Actions REST API Endpoints
+
+| Method | Endpoint | Purpose | Example |
+|--------|----------|---------|---------|
+| `POST` | `/mother/actions/suggest` | Preview action without executing | `curl -X POST http://localhost:8000/mother/actions/suggest -d '{"action": "systemctl_restart", "service": "nordvpnd"}'` |
+| `POST` | `/mother/actions/execute` | Execute action with approval | `curl -X POST http://localhost:8000/mother/actions/execute -d '{"action": "systemctl_status", "service": "nordvpnd", "approve": true}'` |
+| `GET` | `/mother/actions/audit` | View action audit log | `curl http://localhost:8000/mother/actions/audit?limit=50` |
+
+### Actions CLI
+
+```bash
+# Suggest an action (preview only, doesn't execute)
+pixi run python mother-cli.py actions suggest systemctl_restart nordvpnd
+
+# Execute with approval
+pixi run python mother-cli.py actions execute systemctl_restart nordvpnd --approve
+
+# View audit log (all executed actions)
+pixi run python mother-cli.py actions audit --limit 50
+```
+
+### Execution Flow
+
+```
+1. Agent detects failure
+2. Agent suggests action: "Consider restarting nordvpnd"
+3. User confirms via CLI: --approve flag
+4. Action is whitelisted and approved
+5. Command executes (e.g., systemctl restart nordvpnd)
+6. Result logged to audit_audit_log table in SQLite
+7. User sees output + confirmation
+```
+
+### Blocked Commands
+
+Never allowed, even with approval:
+- `rm`, `kill`, `reboot`, `shutdown`
+- Writing to `/etc/`, `/root/`, config files
+- `apt`, `pip`, `npm` (package managers)
+- `ifconfig`, `ip route` (network changes)
+- `passwd`, `useradd`, `userdel` (user management)
+
+---
+
 ## 🧠 Features
 
 ### ✅ Hybrid State Management
