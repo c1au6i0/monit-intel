@@ -9,6 +9,7 @@ import asyncio
 import os
 import base64
 import urllib.parse
+from typing import Optional, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -383,6 +384,48 @@ def get_audit_log(limit: int = 50, _: str = Depends(verify_auth)):
 
 
 # ============================================================================
+# Helper: Detect action suggestions in Mother's responses
+# ============================================================================
+
+def detect_action_suggestion(response: str) -> Optional[Dict]:
+    """
+    Detect if Mother is suggesting a system command action.
+    Parses response for patterns like "systemctl restart {service}".
+    Handles commands in backticks and code blocks.
+    
+    Returns:
+        Dict with action type and service name, or None if no action detected
+    """
+    import re
+    
+    response_lower = response.lower()
+    
+    # Patterns to detect actions (with optional sudo prefix and backticks)
+    patterns = [
+        (r"(?:`{1,3}\s*)?(?:sudo\s+)?systemctl\s+restart\s+(\w+)", "systemctl_restart"),
+        (r"(?:`{1,3}\s*)?(?:sudo\s+)?systemctl\s+stop\s+(\w+)", "systemctl_stop"),
+        (r"(?:`{1,3}\s*)?(?:sudo\s+)?systemctl\s+start\s+(\w+)", "systemctl_start"),
+        (r"(?:`{1,3}\s*)?(?:sudo\s+)?systemctl\s+status\s+(\w+)", "systemctl_status"),
+        (r"(?:`{1,3}\s*)?sudo\s+monit\s+monitor\s+(\w+)", "monit_monitor"),
+        (r"(?:`{1,3}\s*)?sudo\s+monit\s+start\s+(\w+)", "monit_start"),
+        (r"(?:`{1,3}\s*)?sudo\s+monit\s+stop\s+(\w+)", "monit_stop"),
+        (r"(?:`{1,3}\s*)?(?:sudo\s+)?journalctl\s+-u\s+(\w+)", "journalctl_view"),
+    ]
+    
+    for pattern, action_type in patterns:
+        match = re.search(pattern, response_lower)
+        if match:
+            service_name = match.group(1)
+            return {
+                "action": action_type,
+                "service": service_name,
+                "command": match.group(0).strip("`").strip()
+            }
+    
+    return None
+
+
+# ============================================================================
 # WEBSOCKET: Bidirectional Chat
 # ============================================================================
 
@@ -475,31 +518,72 @@ async def websocket_chat(websocket: WebSocket):
                 continue
             
             msg_type = data.get("type", "message")
-            content = data.get("content", "").strip()
             
-            if not content:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Empty message"
-                })
-                continue
+            print(f"DEBUG: Received message type: {msg_type}, data: {data}", flush=True)
             
-            # Send acknowledgment
-            await websocket.send_json({
-                "type": "thinking",
-                "message": "Processing your query..."
-            })
+            # Only check for content on message type
+            if msg_type == "message":
+                content = data.get("content", "").strip()
+                if not content:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Empty message"
+                    })
+                    continue
+            else:
+                content = data.get("content", "")
             
             try:
                 if msg_type == "message":
+                    # Send acknowledgment for message type
+                    await websocket.send_json({
+                        "type": "thinking",
+                        "message": "Processing your query..."
+                    })
+                    
                     # Chat with Mother
                     response = mother.query_agent(content)
                     
-                    await websocket.send_json({
-                        "type": "response",
-                        "content": response,
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    # Check if Mother's response contains an action suggestion
+                    action_suggestion = detect_action_suggestion(response)
+                    
+                    print(f"DEBUG: Response: {response[:200]}")  # Debug: print first 200 chars
+                    print(f"DEBUG: Action suggestion detected: {action_suggestion}")  # Debug: print detected action
+                    
+                    if action_suggestion:
+                        # Send the response first
+                        await websocket.send_json({
+                            "type": "response",
+                            "content": response,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        
+                        # Then send action suggestion for approval
+                        try:
+                            action_type = ActionType[action_suggestion["action"].upper()]
+                            suggestion = action_executor.suggest_action(action_type, action_suggestion["service"])
+                            
+                            print(f"DEBUG: Sending action suggestion - action: {action_suggestion['action']}, service: {action_suggestion['service']}")
+                            
+                            await websocket.send_json({
+                                "type": "action_suggestion",
+                                "action": action_suggestion["action"],
+                                "service": action_suggestion["service"],
+                                "command": suggestion.get("command"),
+                                "description": suggestion.get("description"),
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        except (KeyError, ValueError) as e:
+                            print(f"DEBUG: Error converting action type: {e}")
+                            # If action type is invalid, just send response
+                            pass
+                    else:
+                        # No action detected, just send response
+                        await websocket.send_json({
+                            "type": "response",
+                            "content": response,
+                            "timestamp": datetime.now().isoformat()
+                        })
                 
                 elif msg_type == "action":
                     # Execute action
@@ -534,11 +618,37 @@ async def websocket_chat(websocket: WebSocket):
                 
                 elif msg_type == "action_confirm":
                     # Confirm and execute action
-                    action = data.get("action", "").lower()
+                    action_str = data.get("action", "").lower()
                     service = data.get("service", "").lower()
                     
-                    result = action_executor.execute_action(action, service, approve=True)
+                    print(f"DEBUG action_confirm: action_str={action_str}, service={service}", flush=True)
                     
+                    try:
+                        # Convert string to ActionType enum
+                        print(f"DEBUG: About to convert action_str.upper()={action_str.upper()}", flush=True)
+                        action_type = ActionType[action_str.upper()]
+                        print(f"DEBUG: Converted to ActionType: {action_type}", flush=True)
+                        print(f"DEBUG: About to execute action", flush=True)
+                        result = action_executor.execute_action(action_type, service, user_approved=True)
+                        print(f"DEBUG: Execute result: {result}", flush=True)
+                    except (KeyError, ValueError) as e:
+                        print(f"DEBUG: Conversion/Execution error: {e}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        result = {
+                            "success": False,
+                            "reason": f"Unknown action type: {action_str}. Supported: systemctl_restart, systemctl_stop, systemctl_start, systemctl_status, monit_monitor, monit_start, monit_stop, journalctl_view"
+                        }
+                    except Exception as e:
+                        print(f"DEBUG: UNEXPECTED error in action_confirm: {e}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        result = {
+                            "success": False,
+                            "reason": str(e)
+                        }
+                    
+                    print(f"DEBUG: About to send response", flush=True)
                     if result.get("success"):
                         await websocket.send_json({
                             "type": "action_result",
@@ -554,6 +664,7 @@ async def websocket_chat(websocket: WebSocket):
                             "error": result.get("reason"),
                             "timestamp": datetime.now().isoformat()
                         })
+                    print(f"DEBUG: Response sent", flush=True)
                 
                 elif msg_type == "history":
                     # Get conversation history
@@ -570,6 +681,9 @@ async def websocket_chat(websocket: WebSocket):
                     })
             
             except Exception as e:
+                import traceback
+                print(f"ERROR: {str(e)}", flush=True)
+                print(f"TRACEBACK: {traceback.format_exc()}", flush=True)
                 await websocket.send_json({
                     "type": "error",
                     "message": f"Error processing request: {str(e)}"

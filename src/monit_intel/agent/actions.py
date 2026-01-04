@@ -28,14 +28,14 @@ class ActionExecutor:
 
     # Whitelist of allowed actions
     SAFE_ACTIONS = {
-        ActionType.SYSTEMCTL_RESTART: "systemctl restart {service}",
-        ActionType.SYSTEMCTL_STOP: "systemctl stop {service}",
-        ActionType.SYSTEMCTL_START: "systemctl start {service}",
-        ActionType.SYSTEMCTL_STATUS: "systemctl status {service}",
+        ActionType.SYSTEMCTL_RESTART: "sudo systemctl restart {service}",
+        ActionType.SYSTEMCTL_STOP: "sudo systemctl stop {service}",
+        ActionType.SYSTEMCTL_START: "sudo systemctl start {service}",
+        ActionType.SYSTEMCTL_STATUS: "sudo systemctl status {service}",
         ActionType.MONIT_MONITOR: "sudo monit monitor {service}",
         ActionType.MONIT_START: "sudo monit start {service}",
         ActionType.MONIT_STOP: "sudo monit stop {service}",
-        ActionType.JOURNALCTL_VIEW: "journalctl -u {service} -n 50",
+        ActionType.JOURNALCTL_VIEW: "sudo journalctl -u {service} -n 50",
     }
 
     # Blocked commands (never allowed)

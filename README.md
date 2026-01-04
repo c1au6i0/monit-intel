@@ -437,10 +437,20 @@ For detailed Mother architecture, including context injection, log retrieval, an
 - ✅ **Approved** - Requires user confirmation
 
 **Safe Actions:**
+
+Systemd service control:
 - `systemctl_restart` - Restart a service
+- `systemctl_start` - Start a service
 - `systemctl_stop` - Stop a service
 - `systemctl_status` - View service status
-- `journalctl_view` - View service logs
+
+Monit control:
+- `monit_monitor` - Enable monitoring for a service
+- `monit_start` - Start a service via Monit
+- `monit_stop` - Stop a service via Monit
+
+Log viewing:
+- `journalctl_view` - View service logs (last 50 lines)
 
 For complete whitelist, audit log schema, and execution flow, see [ARCHITECTURE.md → Database Schema](docs/ARCHITECTURE.md#database-schema).
 
