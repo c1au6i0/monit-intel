@@ -543,6 +543,10 @@
             authCredentials = storedAuth;
             loginOverlay.style.display = 'none';
             initializeChat();
+        } else {
+            // Ensure login overlay is visible
+            loginOverlay.style.display = 'flex';
+            loginUsername.focus();
         }
 
         // Handle login
@@ -574,17 +578,22 @@
             .then(response => {
                 if (response.status === 401) {
                     showLoginError('Invalid credentials');
+                    localStorage.removeItem('muthur_auth');
                     authCredentials = null;
                 } else {
                     // Store auth in localStorage
                     localStorage.setItem('muthur_auth', authCredentials);
                     loginError.style.display = 'none';
                     loginOverlay.style.display = 'none';
+                    loginUsername.value = '';
+                    loginPassword.value = '';
                     initializeChat();
                 }
             })
             .catch(error => {
                 showLoginError('Connection error: ' + error.message);
+                localStorage.removeItem('muthur_auth');
+                authCredentials = null;
             });
         }
 
@@ -636,8 +645,10 @@
                 sendBtn.disabled = true;
                 console.log('WebSocket disconnected');
 
-                // Attempt reconnection after 3 seconds
-                setTimeout(connectWebSocket, 3000);
+                // Only attempt reconnection if authenticated
+                if (authCredentials) {
+                    setTimeout(connectWebSocket, 3000);
+                }
             };
         }
 
