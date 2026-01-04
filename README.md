@@ -34,7 +34,7 @@ pixi install
 ```bash
 cat > .env << EOF
 MONIT_USER=admin
-MONIT_PASS=monit
+MONIT_PASS=your_monit_password
 MONIT_URL=http://localhost:2812/_status?format=xml
 EOF
 ```
