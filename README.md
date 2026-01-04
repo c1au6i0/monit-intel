@@ -346,6 +346,87 @@ sudo systemctl disable monit-intel-agent.service  # Don't auto-start
 
 ---
 
+## 📊 Example Queries & Responses
+
+Mother analyzes logs from **7 services with detailed logging** and provides immediate insights:
+
+### Query 1: Backup Analysis (system_backup)
+```
+You: "What about the system backup status?"
+
+Mother:
+The system backup completed successfully today with these metrics:
+- Transferred: 101,748,887 bytes
+- Speed: 10,713,592.95 bytes/sec
+- Speedup (compression): 153.08x
+- Time: 9.5 seconds
+
+No errors detected in the log. The backup is operating efficiently.
+```
+
+### Query 2: VPN Connection Status (nordvpn_connected)
+```
+You: "What VPN servers has nordvpn been using?"
+
+Mother:
+The VPN has connected to 19 different servers across multiple countries:
+- US locations (Dallas, Seattle, Kansas City)
+- New Zealand locations (Auckland, Wellington)
+- Other regions
+
+There are 3 failed connection attempts in the log, suggesting occasional
+connection stability issues. Current connection appears healthy.
+```
+
+### Query 3: Docker Service Issue (docker)
+```
+You: "Is there any issue with docker?"
+
+Mother:
+Yes, the Docker service is reporting DNS resolution failures:
+
+Recent logs show containers timing out trying to reach:
+- api.themoviedb.org (Jellyfin metadata service)
+- sync-v2.brave.com (Brave browser container)
+- www.omdbapi.com (OMDB API for media)
+
+Error pattern: "read udp 127.0.0.1:*->127.0.0.53:53: i/o timeout"
+This indicates DNS resolver (127.0.0.53:53) is unreachable or overloaded.
+
+Recommendation: Check systemd-resolved service or container DNS config.
+```
+
+### Query 4: Docker Service (Limited Log Access)
+```
+You: "What about the Jellyfin container status?"
+
+Mother:
+Jellyfin is a Docker container service. Here's what I know:
+- Status: healthy (last check 5 minutes ago)
+- CPU: 2.4%
+- Memory: 245 MB
+- Uptime: 14 days
+
+Note: Docker container logs require sudo/docker exec access which I cannot
+perform for security reasons. I report database metrics instead. For detailed
+Jellyfin logs, run: docker logs jellyfin
+```
+
+### Query 5: Disk/ZFS Status
+```
+You: "Check the sanoid errors service"
+
+Mother:
+ZFS snapshots are working correctly. Recent activity:
+- 12 snapshots created in the last 3 days
+- Pool status: all datasets healthy
+- No error messages in the service logs
+
+The sanoid service manages automated ZFS snapshots and cleanup.
+```
+
+---
+
 ## 🏗️ Architecture
 
 **Monit-Intel** uses a dual-workflow architecture:
@@ -481,14 +562,27 @@ For all configuration options, see [ARCHITECTURE.md → Configuration & Customiz
 
 ## 🧠 Key Features
 
-- ✅ **Hybrid State Management** - Detects NEW vs ONGOING failures, skips re-analysis of unchanged failures (saves GPU)
-- ✅ **Service Log Analysis** - Mother automatically fetches and analyzes recent logs for services in her context
-  - **7 Services with Direct Log Access:** system_backup, nordvpn_reconnect, nordvpn_status, gamma_conn, network_resurrect, sanoid_errors, zfs-zed
-  - **8 Docker Services (DB Only):** immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running, jellyfin_running, jellyfin_http, miniflux_running, postgres_running (logs require docker exec/sudo)
-  - **15+ Other Services (Journalctl Fallback):** Automatically queried from systemd journal with smart unit name matching
-  - Mother analyzes available logs and gracefully explains when logs are inaccessible
+- ✅ **Comprehensive Service Visibility** - Mother monitors all 30 services with multi-source context
+- ✅ **Service Log Analysis** - Automatic log fetching and analysis for actionable insights
+  - **7 Services with Detailed Logs:** system_backup (file), nordvpn_connected (file), nordvpnd (journalctl), tailscaled (journalctl), sanoid_errors (journalctl), zfs-zed (journalctl), network_resurrect (file)
+    - Mother extracts key metrics (file sizes, transfer speeds, connection details, snapshot info)
+    - Quotes specific log lines as evidence for conclusions
+    - Provides diagnostic insights based on actual error messages
+  
+  - **8 Docker Services (Database Only):** immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running, jellyfin_running, jellyfin_http, miniflux_running, postgres_running
+    - Logs inaccessible (require docker exec/sudo for security)
+    - Mother gracefully explains limitation and provides DB metrics instead
+    - Still reports health status, CPU, memory, and failure history
+  
+  - **15+ Other Services (Journalctl Fallback):** All remaining services automatically queried from systemd journal
+    - Smart service name matching (variations like `service.service`, `service-with-dashes`)
+    - Detects and reports container DNS issues, timeout errors, connection problems
+    - Falls back to database metrics if no journal logs available
+
+- ✅ **Unified Data Access** - All 30 services report via database (status, metrics, failure history)
 - ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
 - ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
+- ✅ **Word-Boundary Service Matching** - No cross-talk between services in analysis
 - ✅ **OS-Aware Recommendations** - Detects Ubuntu/Fedora and suggests apt/dnf commands
 - ✅ **Analysis Audit Trail** - All analysis logged to SQLite
 - ✅ **Read-Only Design** - AI analyzes and suggests, you execute
