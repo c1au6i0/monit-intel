@@ -340,88 +340,7 @@ sudo systemctl stop monit-intel-agent.service
 sudo systemctl disable monit-intel-agent.service  # Don't auto-start
 ```
 
----
 
-## 📊 Example Queries & Responses
-
-Mother analyzes logs from **7 services with detailed logging** and provides immediate insights:
-
-### Query 1: Backup Analysis (system_backup)
-```
-You: "What about the system backup status?"
-
-Mother:
-The system backup completed successfully today with these metrics:
-- Transferred: 101,748,887 bytes
-- Speed: 10,713,592.95 bytes/sec
-- Speedup (compression): 153.08x
-- Time: 9.5 seconds
-
-No errors detected in the log. The backup is operating efficiently.
-```
-
-### Query 2: VPN Connection Status (nordvpn_connected)
-```
-You: "What VPN servers has nordvpn been using?"
-
-Mother:
-The VPN has connected to 19 different servers across multiple countries:
-- US locations (Dallas, Seattle, Kansas City)
-- New Zealand locations (Auckland, Wellington)
-- Other regions
-
-There are 3 failed connection attempts in the log, suggesting occasional
-connection stability issues. Current connection appears healthy.
-```
-
-### Query 3: Docker Service Issue (docker)
-```
-You: "Is there any issue with docker?"
-
-Mother:
-Yes, the Docker service is reporting DNS resolution failures:
-
-Recent logs show containers timing out trying to reach:
-- api.themoviedb.org (Jellyfin metadata service)
-- sync-v2.brave.com (Brave browser container)
-- www.omdbapi.com (OMDB API for media)
-
-Error pattern: "read udp 127.0.0.1:*->127.0.0.53:53: i/o timeout"
-This indicates DNS resolver (127.0.0.53:53) is unreachable or overloaded.
-
-Recommendation: Check systemd-resolved service or container DNS config.
-```
-
-### Query 4: Docker Service (Limited Log Access)
-```
-You: "What about the Jellyfin container status?"
-
-Mother:
-Jellyfin is a Docker container service. Here's what I know:
-- Status: healthy (last check 5 minutes ago)
-- CPU: 2.4%
-- Memory: 245 MB
-- Uptime: 14 days
-
-Note: Docker container logs require sudo/docker exec access which I cannot
-perform for security reasons. I report database metrics instead. For detailed
-Jellyfin logs, run: docker logs jellyfin
-```
-
-### Query 5: Disk/ZFS Status
-```
-You: "Check the sanoid errors service"
-
-Mother:
-ZFS snapshots are working correctly. Recent activity:
-- 12 snapshots created in the last 3 days
-- Pool status: all datasets healthy
-- No error messages in the service logs
-
-The sanoid service manages automated ZFS snapshots and cleanup.
-```
-
----
 
 ## 🏗️ Architecture
 
@@ -535,41 +454,8 @@ const SESSION_TIMEOUT = 1800000; // 30 minutes (milliseconds)
 RETENTION_DAYS = 30  # Keep 30 days of snapshots
 ```
 
-### Adding New Services to Log Registry
-
-Edit `src/monit_intel/tools/log_reader.py`:
-
-```python
-log_registry = {
-    "my_service": {
-        "strategy": "tail_file",              # or "newest_file", "journalctl"
-        "path": "/var/log/my_service.log",   # for tail_file
-        "max_lines": 100
-    }
-}
-```
-
-**Strategies:**
-- `tail_file` - Read last N lines from single file
-- `newest_file` - Find newest file matching glob pattern, then tail
-- `journalctl` - Query systemd journal for service unit
-
-For all configuration options, see [ARCHITECTURE.md → Configuration & Customization](docs/ARCHITECTURE.md#configuration--customization).
 
 
-
-## 🔐 Security
-
-- ✅ **Chat passwords:** Hashed with PBKDF2-SHA256 (stored in SQLite, never plain text)
-- ✅ **Monit credentials:** Stored in systemd env files (production, chmod 600) or .env (development, not in git)
-- ✅ **HTTP Basic Auth:** All REST endpoints require valid chat credentials
-- ✅ **WebSocket Auth:** Chat UI requires login with 30-minute session timeout
-- ✅ **Read-only by design:** Mother analyzes and advises only - never executes commands
-- ✅ **Audit logs:** All analysis and recommendations logged for transparency
-- ✅ **Scoped logs:** Only reads paths specified in Log Registry
-- ⚠️ **No HTTPS:** Run behind reverse proxy (nginx) for production TLS
-
-For detailed security architecture, see [SECURITY.md](docs/SECURITY.md).
 
 ---
 
@@ -601,14 +487,3 @@ Mother explains this limitation gracefully in responses.
 
 Automatically queried from systemd journal with smart unit name matching. Mother reports status, CPU, memory, and failure history.
 
----
-
-## 📝 Next Steps & Future Enhancements
-
-- [ ] Multi-host monitoring (extend to monitor multiple servers)
-- [ ] Slack/Email alert escalation
-- [ ] Grafana dashboard for historical trends
-- [ ] Fine-tune Llama 3.1 model on server logs
-- [ ] Predictive failure detection
-- [ ] User role-based access control
-- [ ] Integration with PagerDuty / Jira
