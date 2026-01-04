@@ -525,6 +525,7 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
 
     def _extract_services(self, query: str, service_context: Dict) -> List[str]:
         """Extract mentioned service names from user query."""
+        import re
         mentioned = []
         query_lower = query.lower()
         
@@ -532,25 +533,28 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
         for service in service_context.keys():
             service_lower = service.lower()
             # Try multiple matching strategies:
-            # 1. Exact service name match
-            if service_lower in query_lower:
+            # 1. Exact service name match (with word boundaries)
+            if re.search(r'\b' + re.escape(service_lower) + r'\b', query_lower):
                 mentioned.append(service)
                 continue
             
             # 2. Service name with underscores replaced by spaces
-            if service.replace("_", " ").lower() in query_lower:
+            spaced = service.replace("_", " ").lower()
+            if re.search(r'\b' + re.escape(spaced) + r'\b', query_lower):
                 mentioned.append(service)
                 continue
             
             # 3. Service name with underscores replaced by hyphens
-            if service.replace("_", "-").lower() in query_lower:
+            hyphenated = service.replace("_", "-").lower()
+            if re.search(r'\b' + re.escape(hyphenated) + r'\b', query_lower):
                 mentioned.append(service)
                 continue
             
-            # 4. Partial word matching (e.g., "backup" matches "system_backup")
+            # 4. Partial word matching with word boundaries
+            # Only match whole words from service name, not parts of other words
             service_parts = service_lower.replace("_", " ").replace("-", " ").split()
             for part in service_parts:
-                if len(part) > 2 and part in query_lower:  # Avoid matching short words
+                if len(part) > 2 and re.search(r'\b' + re.escape(part) + r'\b', query_lower):
                     mentioned.append(service)
                     break
         
