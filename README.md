@@ -24,7 +24,7 @@ A **LangGraph + Llama 3.1** powered agent that monitors server health via Monit,
 ### Step 1: Clone & Install Dependencies
 
 ```bash
-cd /home/heverz/py_projects/monit-intel
+cd monit-intel
 pixi install
 ```
 
@@ -81,13 +81,10 @@ sudo systemctl daemon-reload
 Chat authentication is **separate from Monit credentials**. Initialize the chat UI login credentials:
 
 ```bash
-cd /home/heverz/py_projects/monit-intel
+cd monit-intel
 
 # Set your chat UI username and password
 pixi run python -m monit_intel.chat_auth your_username your_secure_password
-
-# Example:
-pixi run python -m monit_intel.chat_auth admin MySecurePassword123
 
 # Check status
 pixi run python << 'EOF'
@@ -132,7 +129,7 @@ EOF
 
 **Terminal 1: Start the agent with API**
 ```bash
-cd /home/heverz/py_projects/monit-intel
+cd monit-intel
 
 # Use your Monit credentials from systemd env or .env
 MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
@@ -146,7 +143,7 @@ INFO:     Application startup complete
 
 **Terminal 2: Start the ingestion (optional - runs automatically every 5 min in production)**
 ```bash
-cd /home/heverz/py_projects/monit-intel
+cd monit-intel
 pixi run ingest
 ```
 
@@ -174,7 +171,7 @@ Then login with:
 
 ```bash
 # Install systemd services (one-time setup)
-sudo bash /home/heverz/py_projects/monit-intel/config/systemd/install-services.sh
+sudo bash ./config/systemd/install-services.sh
 
 # Start agent
 sudo systemctl start monit-intel-agent.service
@@ -235,7 +232,7 @@ Bot:  "I can help with that. Execute: systemctl restart docker (y/n)?"
 
 **Start the interactive CLI:**
 ```bash
-cd /home/heverz/py_projects/monit-intel
+cd monit-intel
 pixi run hello-mother
 ```
 
