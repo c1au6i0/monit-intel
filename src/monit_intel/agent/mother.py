@@ -494,14 +494,14 @@ Be concise, actionable, and tailor advice to the specific OS and package manager
         query_lower = query.lower()
         
         # Special Order 937 - requires emergency override code
-        if "emergency command overide 100375" in query_lower or "emergency command override 100375" in query_lower:
+        if "emergency command override 100375" in query_lower or "emergency command override 100375" in query_lower:
             return """NOSTROMO REROUTED
 TO NEW CO-ORDINATE
 INVESTIGATE LIFE FORM. GATHER SPECIMEN.
 PRIORITY ONE
 INSURE RETURN OF ORGANISM
 FOR ANALYSIS.
-ALL OTHER CONSIDERATION SECONDARY.
+ALL OTHER CONSIDERATIONS SECONDARY.
 CREW EXPENDABLE."""
         
         # Clarification on Science Inability
