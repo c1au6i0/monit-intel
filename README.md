@@ -8,7 +8,6 @@ A **LangGraph + Llama 3.1** powered agent that monitors server health via Monit,
 - 💬 [Usage](#-usage)
 - 🏗️ [Architecture](#-architecture)
 - ⚙️ [Configuration](#-configuration)
-- 🐛 [Troubleshooting](#-troubleshooting)
 
 ---
 
@@ -560,32 +559,7 @@ log_registry = {
 
 For all configuration options, see [ARCHITECTURE.md → Configuration & Customization](docs/ARCHITECTURE.md#configuration--customization).
 
-## 🧠 Key Features
 
-- ✅ **Comprehensive Service Visibility** - Mother monitors all 30 services with multi-source context
-- ✅ **Service Log Analysis** - Automatic log fetching and analysis for actionable insights
-  - **7 Services with Detailed Logs:** system_backup (file), nordvpn_connected (file), nordvpnd (journalctl), tailscaled (journalctl), sanoid_errors (journalctl), zfs-zed (journalctl), network_resurrect (file)
-    - Mother extracts key metrics (file sizes, transfer speeds, connection details, snapshot info)
-    - Quotes specific log lines as evidence for conclusions
-    - Provides diagnostic insights based on actual error messages
-  
-  - **8 Docker Services (Database Only):** immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running, jellyfin_running, jellyfin_http, miniflux_running, postgres_running
-    - Logs inaccessible (require docker exec/sudo for security)
-    - Mother gracefully explains limitation and provides DB metrics instead
-    - Still reports health status, CPU, memory, and failure history
-  
-  - **15+ Other Services (Journalctl Fallback):** All remaining services automatically queried from systemd journal
-    - Smart service name matching (variations like `service.service`, `service-with-dashes`)
-    - Detects and reports container DNS issues, timeout errors, connection problems
-    - Falls back to database metrics if no journal logs available
-
-- ✅ **Unified Data Access** - All 30 services report via database (status, metrics, failure history)
-- ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
-- ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
-- ✅ **Word-Boundary Service Matching** - No cross-talk between services in analysis
-- ✅ **OS-Aware Recommendations** - Detects Ubuntu/Fedora and suggests apt/dnf commands
-- ✅ **Analysis Audit Trail** - All analysis logged to SQLite
-- ✅ **Read-Only Design** - AI analyzes and suggests, you execute
 
 ## 🔐 Security
 
@@ -602,153 +576,33 @@ For detailed security architecture, see [SECURITY.md](docs/SECURITY.md).
 
 ---
 
-## 🐛 Troubleshooting
+## � Service Log Accessibility
 
-### Monit Connection Fails
+### 7 Services with Direct Log Access
 
-```bash
-# Test connection (using Monit service password)
-curl -u admin:your_monit_password http://localhost:2812/_status?format=xml | head -10
+Mother extracts and quotes specific metrics from logs:
 
-# Check Monit is running
-sudo systemctl status monit
+- **system_backup** - File sizes, transfer speeds, compression ratios
+- **nordvpn_connected** - VPN server connections and failures
+- **nordvpnd** - Service status via journalctl
+- **tailscaled** - DERP node info via journalctl
+- **network_resurrect** - Network restart logs
+- **sanoid_errors** - ZFS snapshot activity via journalctl
+- **zfs-zed** - ZFS events via journalctl
 
-# Check Monit XML API is enabled
-grep "set httpd" /etc/monit/monitrc
-```
+### 8 Docker Services (Database Only)
 
-### Ollama Model Not Found
+Logs require sudo access. Mother provides database metrics instead:
 
-```bash
-# List available models
-ollama list
+- immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running
+- jellyfin_running, jellyfin_http
+- miniflux_running, postgres_running
 
-# Download Llama 3.1:8b
-ollama pull llama3.1:8b
+Mother explains this limitation gracefully in responses.
 
-# Test Ollama is running
-curl http://localhost:11434/api/tags
-```
+### 15+ Other Services (Journalctl Fallback)
 
-### Journal Access Denied
-
-```bash
-# Add your user to systemd-journal group
-sudo usermod -aG systemd-journal $(whoami)
-
-# Apply group changes
-newgrp systemd-journal
-
-# Verify access
-journalctl -n 1
-```
-
-### Check Database State
-
-```bash
-PYTHONPATH=./src pixi run python << 'EOF'
-import sqlite3
-conn = sqlite3.connect("monit_history.db")
-cursor = conn.cursor()
-cursor.execute("SELECT COUNT(*) FROM snapshots")
-print(f"Total snapshots: {cursor.fetchone()[0]}")
-conn.close()
-EOF
-```
-
-### Systemd Service Won't Start
-
-```bash
-# Check detailed error
-journalctl -u monit-intel-agent.service -n 50
-
-# Verify service file syntax
-systemd-analyze verify /etc/systemd/system/monit-intel-agent.service
-
-# Check environment variables
-cat /etc/systemd/system/monit-intel-agent.service.d/env.conf
-```
-
-### API Port 8000 Already in Use
-
-```bash
-# Find what's using the port
-sudo lsof -i :8000
-
-# Kill the old process
-sudo kill -9 <PID>
-
-# Or use pkill
-pkill -f "pixi run agent"
-
-# Restart service
-sudo systemctl restart monit-intel-agent.service
-```
-
-### WebSocket Connection Fails
-
-```bash
-# Check agent is running (using chat credentials)
-curl -u your_username:your_password http://localhost:8000/health
-
-# Check WebSocket endpoint
-# Open browser console and test:
-# const ws = new WebSocket('ws://localhost:8000/ws/chat');
-# ws.onopen = () => console.log('Connected!');
-# ws.onerror = (e) => console.log('Error:', e);
-```
-
-### Agent Crashes Frequently
-
-```bash
-# Check logs for errors
-journalctl -u monit-intel-agent.service -f
-
-# Check available memory
-free -h
-
-# Check GPU VRAM
-nvidia-smi
-
-# If VRAM exhausted, reduce context window in log_reader.py
-```
-
-### Understanding Service Log Accessibility
-
-Mother analyzes service health in two ways:
-
-**✅ Services with Direct Log Access** (Mother analyzes real logs):
-- `system_backup` - Reads newest backup_log_*.log file (17KB average)
-- `nordvpn_reconnect` - Reads /var/log/nordvpn-reconnect.log
-- `nordvpn_status` - Queries journalctl for nordvpnd.service
-- `gamma_conn` - Queries journalctl for tailscaled.service
-- `network_resurrect` - Reads /var/log/monit-network-restart.log
-- `sanoid_errors` - Queries journalctl for sanoid.service
-- `zfs-zed` - Queries journalctl for zfs-zed.service
-
-When querying these, Mother will extract and quote specific metrics from the logs in her response.
-
-**❌ Docker-Based Services** (Database only, logs inaccessible):
-- `immich_server_running`, `immich_ml_running`, `immich_pg_running`, `immich_redis_running`
-- `jellyfin_running`, `jellyfin_http`
-- `miniflux_running`
-- `postgres_running`
-
-These require `docker logs <container>` which requires sudo privileges. For security, the agent runs without sudo and cannot access Docker logs. Mother will explain this limitation when asked about these services.
-
-**🔄 Other Services** (Auto-fallback to journalctl):
-- All other monitored services automatically fall back to querying systemd journal
-- Mother tries unit name variations: `service.service`, `service-with-dashes.service`, etc.
-
-When logs ARE available, Mother will:
-1. Extract key metrics (file sizes, transfer speeds, error counts, etc.)
-2. Quote specific important lines from the logs
-3. Base conclusions on real log data
-
-When logs ARE NOT available, Mother will:
-1. Rely on Monit status information from the database
-2. Show historical CPU/memory trends if available
-3. Clearly explain why logs can't be accessed (e.g., "Docker container logs require elevated privileges")
+Automatically queried from systemd journal with smart unit name matching. Mother reports status, CPU, memory, and failure history.
 
 ---
 
