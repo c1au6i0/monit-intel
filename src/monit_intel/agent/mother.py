@@ -159,6 +159,20 @@ class Mother:
             "recent_failures": failures[:5]
         }
 
+    def get_service_logs(self, service_name: str) -> str:
+        """Fetch recent logs for a service if available in the log registry."""
+        try:
+            result = self.log_reader.get_logs_for_service(service_name)
+            if result.get("error"):
+                return ""  # Service not in registry, silently skip
+            logs = result.get("logs")
+            if logs:
+                return f"\n--- Recent logs for {service_name} ---\n{logs}"
+            else:
+                return ""  # No logs found, silently skip
+        except Exception as e:
+            return ""  # Error fetching, silently skip
+
     def get_historical_trends(self, days: int = 7) -> str:
         """Get historical trend data for all services over the past N days."""
         import json
@@ -370,6 +384,11 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
                 info = context[service]
                 status = "✓ HEALTHY" if info["healthy"] else "✗ FAILED"
                 lines.append(f"  {service}: {status} (last checked: {info['last_checked']})")
+                
+                # Try to fetch and include logs for this service
+                logs = self.get_service_logs(service)
+                if logs:  # Only add if logs returned something
+                    lines.append(logs)
         
         return "\n".join(lines)
 
