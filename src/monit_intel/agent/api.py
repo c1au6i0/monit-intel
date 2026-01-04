@@ -8,6 +8,7 @@ import json
 import asyncio
 import os
 import base64
+import urllib.parse
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -99,8 +100,8 @@ def root():
 
 
 @app.get("/health")
-def health():
-    """Health check."""
+def health(_: str = Depends(verify_auth)):
+    """Health check. Requires authentication."""
     try:
         conn = sqlite3.connect("monit_history.db")
         cursor = conn.cursor()
@@ -404,39 +405,64 @@ manager = ConnectionManager()
 async def websocket_chat(websocket: WebSocket):
     """
     WebSocket endpoint for bidirectional chat with Mother.
-    Requires HTTP Basic Authentication via query parameter: ?auth=base64_credentials
+    First message must be authentication: {"type": "auth", "credentials": "base64_encoded_user:pass"}
     
-    Message format:
+    After auth, send messages:
     {
         "type": "message",
         "content": "user query",
         "action": "execute_command" (optional)
     }
     """
-    # Verify auth from query parameter
-    auth_param = websocket.query_params.get("auth")
-    if not auth_param:
-        await websocket.close(code=4001, reason="Missing authentication")
-        return
-    
-    try:
-        decoded = base64.b64decode(auth_param).decode("utf-8")
-        username, password = decoded.split(":", 1)
-        
-        if username != MONIT_USER or password != MONIT_PASS:
-            await websocket.close(code=4001, reason="Invalid credentials")
-            return
-    
-    except (ValueError, UnicodeDecodeError):
-        await websocket.close(code=4001, reason="Invalid credentials format")
-        return
-    
     await manager.connect(websocket)
+    authenticated = False
     
     try:
         while True:
-            # Receive user message
+            # Receive first message - should be auth
             data = await websocket.receive_json()
+            
+            # Check for auth message
+            if data.get("type") == "auth":
+                credentials_b64 = data.get("credentials", "")
+                
+                try:
+                    # URL-decode if needed
+                    decoded_credentials = urllib.parse.unquote(credentials_b64)
+                    # Base64 decode
+                    credentials = base64.b64decode(decoded_credentials).decode("utf-8")
+                    username, password = credentials.split(":", 1)
+                    
+                    if username == MONIT_USER and password == MONIT_PASS:
+                        authenticated = True
+                        await websocket.send_json({
+                            "type": "system",
+                            "message": "Authentication successful"
+                        })
+                        continue
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Invalid credentials"
+                        })
+                        await websocket.close(code=4001, reason="Invalid credentials")
+                        return
+                
+                except (ValueError, UnicodeDecodeError):
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid credentials format"
+                    })
+                    await websocket.close(code=4001, reason="Invalid credentials format")
+                    return
+            
+            # Only process other messages after authentication
+            if not authenticated:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Not authenticated. Send auth message first."
+                })
+                continue
             
             msg_type = data.get("type", "message")
             content = data.get("content", "").strip()

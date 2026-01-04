@@ -108,6 +108,29 @@
             animation: none;
         }
 
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff6666;
+            border: 1px solid #ff4444;
+            padding: 8px 16px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.2);
+            z-index: 100;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 68, 68, 0.2);
+            box-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+        }
+
         @keyframes pulse-glow {
             0%, 100% { 
                 opacity: 1;
@@ -494,6 +517,7 @@
         </div>
 
         <div class="header">
+            <button class="logout-btn" id="logoutBtn">LOGOUT</button>
             <h1>⚙ MU/TH/UR ⚙</h1>
             <p>
                 <span class="status" id="status"></span>
@@ -532,10 +556,17 @@
         const loginPassword = document.getElementById('loginPassword');
         const loginBtn = document.getElementById('loginBtn');
         const loginError = document.getElementById('loginError');
+        const logoutBtn = document.getElementById('logoutBtn');
 
         let ws = null;
         let isConnected = false;
         let authCredentials = null;
+        let sessionTimer = null;
+        const SESSION_TIMEOUT = 1800000; // 30 minutes in milliseconds
+
+        // Determine WebSocket URL (must be before functions that use it)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
 
         // Check if credentials are stored in localStorage
         const storedAuth = localStorage.getItem('muthur_auth');
@@ -602,28 +633,61 @@
             loginError.style.display = 'block';
         }
 
+        function resetSessionTimer() {
+            clearTimeout(sessionTimer);
+            if (isConnected) {
+                sessionTimer = setTimeout(() => {
+                    addMessage('system', '> SESSION TIMEOUT - PLEASE RE-AUTHENTICATE');
+                    logout();
+                }, SESSION_TIMEOUT);
+            }
+        }
+
+        function logout() {
+            console.log('Logging out...');
+            clearTimeout(sessionTimer);
+            localStorage.removeItem('muthur_auth');
+            authCredentials = null;
+            isConnected = false;
+            
+            if (ws) {
+                ws.close();
+            }
+            
+            statusEl.classList.add('disconnected');
+            statusText.textContent = 'LOGGED OUT';
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+            loginOverlay.style.display = 'flex';
+            loginUsername.value = '';
+            loginPassword.value = '';
+            loginUsername.focus();
+            
+            chatBox.innerHTML = '<div class="message system"><div class="message-content">> MU/TH/UR SYSTEM ONLINE<br>> AWAITING COMMAND</div></div>';
+        }
+
         function initializeChat() {
+            statusText.textContent = 'CONNECTING...';
+            statusEl.classList.add('disconnected');
             connectWebSocket();
             messageInput.focus();
         }
 
-        // Determine WebSocket URL
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
-
         function connectWebSocket() {
-            // Include auth in WebSocket URL
-            const authParam = encodeURIComponent(authCredentials);
-            const wsUrlWithAuth = `${wsUrl}?auth=${authParam}`;
-            ws = new WebSocket(wsUrlWithAuth);
+            // Connect without auth in URL
+            console.log('Connecting WebSocket...');
+            console.log('Auth credentials:', authCredentials ? authCredentials.substring(0, 10) + '...' : 'NONE');
+            ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                isConnected = true;
-                statusEl.classList.remove('disconnected');
-                statusText.textContent = 'ONLINE';
-                messageInput.disabled = false;
-                sendBtn.disabled = false;
-                console.log('WebSocket connected');
+                // Send authentication as first message
+                const authMsg = {
+                    type: "auth",
+                    credentials: authCredentials
+                };
+                console.log('Sending auth message...');
+                ws.send(JSON.stringify(authMsg));
+                console.log('WebSocket connected, sending auth...');
             };
 
             ws.onmessage = (event) => {
@@ -645,9 +709,12 @@
                 sendBtn.disabled = true;
                 console.log('WebSocket disconnected');
 
-                // Only attempt reconnection if authenticated
-                if (authCredentials) {
+                // Only attempt reconnection if authenticated and credentials exist
+                if (authCredentials && localStorage.getItem('muthur_auth')) {
+                    console.log('Attempting to reconnect in 3 seconds...');
                     setTimeout(connectWebSocket, 3000);
+                } else {
+                    console.log('No credentials stored, not reconnecting');
                 }
             };
         }
@@ -656,6 +723,27 @@
             const type = data.type;
 
             switch (type) {
+                case 'error':
+                    // Error message
+                    statusText.textContent = 'ERROR: ' + data.message;
+                    statusEl.classList.add('disconnected');
+                    addMessage('system', `> ERROR: ${data.message}`);
+                    console.error('Server error:', data.message);
+                    break;
+
+                case 'system':
+                    // System message (including auth response)
+                    if (data.message.includes('Authentication successful')) {
+                        isConnected = true;
+                        statusEl.classList.remove('disconnected');
+                        statusText.textContent = 'ONLINE';
+                        messageInput.disabled = false;
+                        sendBtn.disabled = false;
+                        console.log('Authenticated and ready');
+                    }
+                    addMessage('system', `> ${data.message}`);
+                    break;
+
                 case 'thinking':
                     addMessage('system', `> ${data.message}`);
                     break;
@@ -785,13 +873,26 @@
         }
 
         // Event listeners
-        sendBtn.addEventListener('click', sendMessage);
+        sendBtn.addEventListener('click', () => {
+            sendMessage();
+            resetSessionTimer();
+        });
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
+                resetSessionTimer();
             }
         });
+        
+        // Logout button event
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
+        });
+        
+        // Reset session timer on user activity
+        chatBox.addEventListener('click', resetSessionTimer);
 
         // Connect on load
         connectWebSocket();
