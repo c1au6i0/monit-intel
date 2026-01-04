@@ -161,6 +161,7 @@ class Mother:
 
     def get_historical_trends(self, days: int = 7) -> str:
         """Get historical trend data for all services over the past N days."""
+        import json
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -181,9 +182,9 @@ class Mother:
             
             status_counts = cursor.fetchall()
             
-            # Get latest status
+            # Get latest status and metrics
             cursor.execute("""
-                SELECT status, timestamp
+                SELECT status, timestamp, raw_json
                 FROM snapshots
                 WHERE service_name = ?
                 ORDER BY timestamp DESC
@@ -195,12 +196,54 @@ class Mother:
                 status = "HEALTHY" if latest[0] == 0 else "FAILED"
                 trends.append(f"  {service}: Currently {status}")
                 
+                # Extract metrics from raw_json if available
+                if latest[2]:
+                    try:
+                        data = json.loads(latest[2])
+                        # Get CPU usage
+                        if "cpu" in data:
+                            cpu_percent = data["cpu"].get("percent", "0")
+                            cpu_total = data["cpu"].get("percenttotal", "0")
+                            trends.append(f"    - CPU: {cpu_percent}% (process), {cpu_total}% (total)")
+                        # Get memory usage
+                        if "memory" in data:
+                            mem_percent = data["memory"].get("percent", "0")
+                            mem_mb = int(data["memory"].get("kilobyte", "0")) / 1024
+                            trends.append(f"    - Memory: {mem_percent}% ({mem_mb:.1f} MB)")
+                    except:
+                        pass
+                
                 # Add failure rate if there were failures
                 for status_val, count in status_counts:
                     if status_val != 0:
                         total = sum(c for _, c in status_counts)
                         failure_rate = (count / total * 100) if total > 0 else 0
                         trends.append(f"    - Failed {count} times in last {days} days ({failure_rate:.1f}% failure rate)")
+                
+                # Get CPU usage trends if available
+                cursor.execute("""
+                    SELECT raw_json FROM snapshots
+                    WHERE service_name = ? AND timestamp >= datetime('now', '-' || ? || ' days')
+                    ORDER BY timestamp
+                """, (service, days))
+                
+                snapshots = cursor.fetchall()
+                if snapshots:
+                    cpu_values = []
+                    for snap in snapshots:
+                        try:
+                            data = json.loads(snap[0])
+                            if "cpu" in data:
+                                cpu_percent = float(data["cpu"].get("percent", "0"))
+                                cpu_values.append(cpu_percent)
+                        except:
+                            pass
+                    
+                    if cpu_values:
+                        avg_cpu = sum(cpu_values) / len(cpu_values)
+                        max_cpu = max(cpu_values)
+                        min_cpu = min(cpu_values)
+                        trends.append(f"    - CPU Trend (last {days} days): avg {avg_cpu:.1f}%, min {min_cpu:.1f}%, max {max_cpu:.1f}%")
         
         conn.close()
         
@@ -249,7 +292,13 @@ IMPORTANT GUIDELINES:
 - Only mention the update command if user specifically asks about updating
 
 You have access to current service status information AND historical trend data over the past 30 days.
-When users ask about changes, trends, or history, refer to the historical data provided.
+When users ask about changes, trends, history, CPU usage, or resource metrics:
+- Provide specific numbers and percentages from the historical data
+- Report average, minimum, and maximum values for CPU usage
+- Reference the CPU Trend data provided in the historical section
+- Mention memory usage percentages and sizes when relevant
+- Be specific about which services use the most resources
+
 Be concise, actionable, and focus on answering the user's specific question. Always tailor advice to the specific OS and package manager."""
             
             response = llm.invoke([
