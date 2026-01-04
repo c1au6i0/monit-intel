@@ -27,20 +27,9 @@ cd monit-intel
 pixi install
 ```
 
-### Step 2: Configure Credentials
+### Step 2: Configure Credentials (Systemd)
 
-**Option A: Development (Local .env - Easy)**
-```bash
-cat > .env << EOF
-MONIT_USER=admin
-MONIT_PASS=your_monit_password
-MONIT_URL=http://localhost:2812/_status?format=xml
-EOF
-```
-
-**Option B: Production (Systemd - Secure & Recommended)**
-
-Credentials stored securely in systemd drop-in files (not in git, not in project folder):
+Store credentials securely in systemd drop-in files (not in git, not in project folder):
 
 ```bash
 # Create environment files
@@ -69,15 +58,9 @@ sudo chmod 600 /etc/systemd/system/monit-intel-*/service.d/env.conf
 sudo systemctl daemon-reload
 ```
 
-**Benefits of Option B:**
-- ✅ Credentials NOT in git repo
-- ✅ Credentials NOT in project folder
-- ✅ Only readable by root (chmod 600)
-- ✅ Easy rotation without code redeploy
-
 ### Step 3: Set Up Chat Credentials
 
-Chat authentication is **separate from Monit credentials**. Initialize the chat UI login credentials:
+Initialize chat UI login credentials (separate from Monit credentials):
 
 ```bash
 cd monit-intel
@@ -85,37 +68,24 @@ cd monit-intel
 # Set your chat UI username and password
 PYTHONPATH=./src pixi run python -m monit_intel.chat_auth your_username your_secure_password
 
-# Check status
+# Verify setup
 PYTHONPATH=./src pixi run python << 'EOF'
 from monit_intel.chat_auth import get_chat_credentials_status
 status = get_chat_credentials_status()
 print(f"Chat credentials configured: {status['configured']}")
-print(f"Credentials count: {status['count']}")
 EOF
 ```
-
-**Note:** You can have different passwords for:
-- **Monit API** (in systemd env files or .env)
-- **Chat UI** (stored securely in SQLite with password hashing)
 
 ### Step 4: Verify Setup
 
 ```bash
-# Test Monit connection (using Monit credentials from systemd env)
-curl -u $(echo $MONIT_USER:$MONIT_PASS) http://localhost:2812/_status?format=xml | head -20
-
-# Test Ollama (should return model info)
-curl http://localhost:11434/api/tags | jq .
-
-# Test database (should show >0 snapshots)
+# Test database
 PYTHONPATH=./src pixi run python << 'EOF'
 import sqlite3
 conn = sqlite3.connect("monit_history.db")
 cursor = conn.cursor()
 cursor.execute("SELECT COUNT(*) FROM snapshots")
 print(f"✓ Database ready: {cursor.fetchone()[0]} snapshots")
-cursor.execute("SELECT COUNT(*) FROM chat_credentials")
-print(f"✓ Chat credentials: {cursor.fetchone()[0]} user(s) configured")
 conn.close()
 EOF
 ```
@@ -124,63 +94,39 @@ EOF
 
 ## 🚀 Quick Start
 
-### Start the Services (Development)
+### Install Systemd Services
 
-**Terminal 1: Start the agent with API**
 ```bash
-cd monit-intel
-
-# Use your Monit credentials from systemd env or .env
-MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
+# One-time setup
+sudo bash ./config/systemd/install-services.sh
 ```
 
-You should see:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000
-INFO:     Application startup complete
-```
+### Start Agent & Ingest
 
-**Terminal 2: Start the ingestion (optional - runs automatically every 5 min in production)**
 ```bash
-cd monit-intel
-pixi run ingest
+# Start agent
+sudo systemctl start monit-intel-agent.service
+
+# Start ingest timer (runs every 5 min)
+sudo systemctl start monit-intel-ingest.timer
+
+# View status
+sudo systemctl status monit-intel-agent.service
+systemctl list-timers monit-intel-ingest.timer
 ```
 
-### Access the Chat UI
+### Access Chat UI
 
-Open your browser:
+Open your browser and login:
 ```
 http://localhost:8000/chat
 ```
 
-Login with the **chat credentials** you set up in Step 3:
-- **Username:** Your chosen username
-- **Password:** Your chosen password
+Login with the **chat credentials** you set up in Step 3.
 
-**Note:** These are **different from your Monit service password**. If you set them up as:
-```bash
-pixi run python -m monit_intel.chat_auth admin your_secure_password
-```
-
-Then login with:
-- Username: `admin`
-- Password: `your_secure_password`
-
-### Start the Services (Production with Systemd)
+### View Logs
 
 ```bash
-# Install systemd services (one-time setup)
-sudo bash ./config/systemd/install-services.sh
-
-# Start agent
-sudo systemctl start monit-intel-agent.service
-sudo systemctl status monit-intel-agent.service
-
-# Start ingest timer
-sudo systemctl start monit-intel-ingest.timer
-systemctl list-timers monit-intel-ingest.timer
-
-# View logs
 journalctl -u monit-intel-agent.service -f
 ```
 
