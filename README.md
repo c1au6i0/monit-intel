@@ -351,834 +351,153 @@ sudo systemctl disable monit-intel-agent.service  # Don't auto-start
 
 ## 🏗️ Architecture
 
-**Service Health Query (REST API):**
-```bash
-curl -X POST http://localhost:8000/mother/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Are there any service failures right now?"}'
+**Monit-Intel** uses a dual-workflow architecture:
 
-# Response:
-# {
-#   "query": "Are there any service failures right now?",
-#   "response": "No, all services are currently healthy. There are no service failures reported at this time...",
-#   "timestamp": "2026-01-03T13:32:13.347162"
-# }
-```
+1. **Background Agent** - Runs every 5 minutes, detects failures, and analyzes root causes using LangGraph + Llama 3.1
+2. **Interactive Chat** - User-facing WebSocket interface for querying system health with 30-day historical context
 
-**Historical Trend Query (30-day analysis with CPU/Memory metrics):**
+**Quick Example:**
 ```bash
+# Query via chat UI
+User: "What about CPU usage in the last 30 days?"
+Mother: "Based on historical trends, docker averages 0.0% CPU, 
+         nordvpn 0.2%. All services show minimal consumption..."
+
+# Or via REST API
 curl -X POST http://localhost:8000/mother/chat \
   -u your_username:your_password \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What about CPU usage in the last 30 days?"}'
-
-# Response:
-# {
-#   "query": "What about CPU usage in the last 30 days?",
-#   "response": "Based on the historical trend data, here are CPU usage observations:
-#   - docker: avg 0.0%, min 0.0%, max 0.0%
-#   - nordvpnd: avg 0.2%, min 0.2%, max 0.2%
-#   - tailscaled: avg 0.1%, min 0.0%, max 0.1%
-#   - Memory usage: docker 101.3 MB (0.1%), nordvpnd 119.0 MB (0.1%)
-#   All services show minimal CPU/Memory consumption with stable trends.",
-#   "timestamp": "2026-01-03T13:45:22.123456"
-# }
+  -d '{"query": "Why is docker failing?"}'
 ```
 
-**Via Web UI (WebSocket):**
-```
-User: "Why is docker unhealthy?"
-Mother: "Based on the current system context, there are no immediate concerns about Docker's health. 
-However, I'd like to highlight a few potential future issues: [Outdated Docker version], 
-[Insufficient disk space], [Resource constraints]..."
+**For detailed architecture information** including component design, data flow, workflow nodes, database schema, WebSocket protocol, and performance characteristics, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-User: "What should I monitor for sshd?"
-Mother: "For SSH security and stability, monitor: Failed login attempts, Connection rate limits, 
-Resource usage, Configuration changes, Certificate/key validity..."
-
-User: "Did we have failures recently?"
-Mother: "Yes. Based on the 30-day historical data, the alpha service has failed 5 times (100% failure rate). 
-All other services remain healthy. I recommend investigating the root cause..."
-
-User: "What's the overall system health?"
-Mother: "All services are currently healthy: docker ✓, sshd ✓, zfs-zed ✓. 
-The system shows no critical issues at this moment. Continue routine monitoring..."
-```
-
-### WebSocket Message Format
-
-The chat UI communicates with the agent via WebSocket at `/ws/chat`. Message types:
-
-**User Messages:**
-```json
-{
-  "type": "message",
-  "content": "user query here"
-}
-
-{
-  "type": "action",
-  "action": "restart",
-  "service": "docker"
-}
-
-{
-  "type": "action_confirm",
-  "action": "restart",
-  "service": "docker"
-}
-```
-
-**Agent Responses:**
-```json
-{
-  "type": "thinking",
-  "message": "Processing your query..."
-}
-
-{
-  "type": "response",
-  "content": "analysis or answer",
-  "timestamp": "2026-01-03T12:00:00"
-}
-
-{
-  "type": "action_suggestion",
-  "action": "restart",
-  "service": "docker",
-  "command": "systemctl restart docker",
-  "description": "Restart the docker service"
-}
-
-{
-  "type": "action_result",
-  "success": true,
-  "exit_code": 0,
-  "output": "command output here",
-  "timestamp": "2026-01-03T12:00:00"
-}
-```
-
-## 🏗️ Architecture
-
-### Components Overview
-
-| Module | Purpose |
-|--------|---------|
-| `src/monit_intel/ingest.py` | Polls Monit XML API every 5 min, stores snapshots, cleans old data |
-| `src/monit_intel/main.py` | Daemon runner - checks for failures every 5 min |
-| `src/monit_intel/hello_mother.py` | Interactive CLI chat interface |
-| `src/monit_intel/agent/api.py` | FastAPI REST + WebSocket server |
-| `src/monit_intel/agent/graph.py` | LangGraph workflow definition (DAG compilation) |
-| `src/monit_intel/agent/state.py` | LangGraph state definition |
-| `src/monit_intel/agent/nodes.py` | Individual workflow nodes (database, log fetching, LLM) |
-| `src/monit_intel/agent/mother.py` | Interactive chat manager with context injection |
-| `src/monit_intel/agent/actions.py` | Safe command executor with whitelist and audit logging |
-| `src/monit_intel/agent/static/chat.html` | Web chat UI (HTML/CSS/JavaScript) |
-| `src/monit_intel/tools/log_reader.py` | Hybrid log reader (files, journalctl, glob patterns) |
-
-### How It Works: Two Parallel Systems
-
-The system has **two distinct workflows** running simultaneously:
-
-#### **System 1: Background Agent (LangGraph Daemon)**
-
-Runs automatically every 5 minutes in the background, detecting and analyzing failures.
-
-```
-START
-  ↓
-detect_failures() [Node 1]
-  ├─ Query SQLite snapshots for failures (status != 0)
-  ├─ Check failure_history: Is this NEW or CHANGED?
-  ├─ Set is_critical=True only for NEW/CHANGED failures
-  └─ Skip unchanged failures (save GPU compute)
-  ↓
-fetch_logs_and_context() [Node 2]
-  ├─ Extract failed service names
-  ├─ Use LogReader to fetch logs from:
-  │  ├─ Log files (tail strategy: /var/log/service.log)
-  │  ├─ Glob patterns (newest_file: /path/logs_*.log)
-  │  └─ Journalctl (journalctl -u service.service)
-  ├─ Apply per-service max_lines limits (50-150 lines)
-  └─ Append logs to context
-  ↓
-analyze_with_llm() [Node 3]
-  ├─ Check: is_critical == True?
-  ├─ If False: Skip LLM (unchanged failure)
-  ├─ If True: Send to Llama 3.1 with context
-  ├─ Llama analyzes logs + service status
-  └─ Return root cause analysis
-  ↓
-END (sleep 5 min, repeat)
-```
-
-**Smart Logic: is_critical Flag**
-- **NEW Failure:** Service was healthy, now failed → `is_critical=True` → **Analyze**
-- **ONGOING:** Service still failing, same status → `is_critical=False` → **Skip** (don't re-analyze)
-- **CHANGED:** Service status changed → `is_critical=True` → **Analyze**
-- **RECOVERED:** Service back to healthy → `is_critical=False` → **Done**
-
-This saves significant GPU compute by not re-analyzing the same failure repeatedly.
-
-#### **System 2: Interactive Chat (Mother / MU/TH/UR)**
-
-A user-facing chat interface that queries the LLM on-demand when you ask questions.
-
-```
-User Types Message in Browser
-  ↓
-WebSocket → FastAPI /ws/chat endpoint
-  ↓
-Mother.query_agent() [agent/mother.py]
-  ├─ Extract mentioned services from user query
-  ├─ Gather context:
-  │  ├─ Current service statuses
-  │  ├─ Historical trends (30-day data with CPU/memory metrics)
-  │  ├─ Recent logs for relevant services
-  │  └─ System info (OS, package manager, hostname)
-  ├─ Detect system: Ubuntu? Fedora? macOS?
-  └─ Inject context into LLM prompt
-  ↓
-Llama 3.1 Processes Query + Context
-  ├─ Understands OS-specific commands
-  ├─ Answers with service history
-  └─ Provides actionable recommendations
-  ↓
-Response Streamed Back via WebSocket
-  ↓
-Browser Displays in Chat UI
-```
-
-**Key Differences:**
-
-| Aspect | Background Agent | Mother Chat |
-|--------|---|---|
-| **Trigger** | Runs every 5 min automatically | User sends message |
-| **Purpose** | Detect failures proactively | Answer user questions |
-| **Process** | Multi-node workflow (Graph) | Single LLM call |
-| **Output** | Console logs | Conversational response |
-| **Context** | Current failure data | Historical + current data |
-
-### Historical Data: 30-Day Snapshots
-
-Every 5 minutes, `ingest.py` stores a complete service snapshot in SQLite:
-
-```json
-{
-  "timestamp": "2026-01-03T20:53:38",
-  "service_name": "docker",
-  "status": 0,  // 0=healthy, other=failed
-  "raw_json": {
-    "cpu": { "percent": "0.5", "percenttotal": "0.5" },
-    "memory": { "percent": "0.1", "kilobyte": "103752" },
-    "uptime": "517935",
-    "threads": "33",
-    ...full Monit data...
-  }
-}
-```
-
-The `get_historical_trends()` function extracts this data:
-- **CPU metrics:** Min/max/average over 30 days per service
-- **Memory usage:** Current and historical percentages
-- **Failure rates:** How often did this service fail?
-- **Status trends:** Service health over time
-
-When you ask "What about CPU usage?", the Mother chat:
-1. Queries the snapshots table for 30 days of data
-2. Extracts CPU percentages for each service
-3. Calculates trends (nordvpnd avg 0.2%, docker avg 0.0%, etc.)
-4. Passes to LLM with actual numbers
-5. Returns analysis: "CPU usage is stable. Nordvpnd is the top consumer..."
-
-### System Context Injection
-
-When you chat with Mother, the system automatically:
-
-1. **Detects your OS:**
-   ```python
-   if "Ubuntu" in lsb_release:
-       package_manager = "apt"
-   elif "Fedora" in lsb_release:
-       package_manager = "dnf"
-   # etc.
-   ```
-
-2. **Injects into LLM prompt:**
-   ```
-   "You are MU/TH/UR running on Ubuntu 24.04 (beta-boy)
-    Package manager: apt (not dnf, zypper, or pacman)
-    When suggesting package installs, use: sudo apt install <package>
-    For service management, use: systemctl ...
-    Current hostname: beta-boy"
-   ```
-
-3. **Result:** LLM gives OS-specific advice automatically
-   - Ask on Ubuntu → get `apt` commands
-   - Ask on Fedora → get `dnf` commands
-   - No manual context needed!
-
-### Per-Service Log Configuration
-
-The log registry tells LogReader where to find logs:
-
-```python
-log_registry = {
-    "system_backup": {
-        "strategy": "newest_file",           # Pick latest file matching pattern
-        "pattern": "/data/tank/backups/sys_restore/backup_log_*.log",
-        "max_lines": 150                     # Verbose backup logs
-    },
-    "nordvpn_reconnect": {
-        "strategy": "tail_file",             # Tail single log file
-        "path": "/var/log/nordvpn-reconnect.log",
-        "max_lines": 75
-    },
-    "nordvpn_status": {
-        "strategy": "journalctl",            # Query systemd journal
-        "unit": "nordvpnd.service",
-        "max_lines": 50                      # Terse service logs
-    }
-}
-```
-
-**Why per-service limits?**
-- Backup logs are verbose (need 150 lines to see full context)
-- Service status is terse (50 lines usually sufficient)
-- Prevents VRAM overflow on GPU with long contexts
-- Keeps LLM inference fast (2-5 seconds per analysis)
-
-### Data Flow Diagram
-
-```
-Monit XML API (every 5 min)
-     ↓
-[ingest.py] 
-     ├→ INSERT snapshots with full raw_json
-     ├→ UPDATE failure_history (track NEW/ONGOING/CHANGED)
-     └→ DELETE snapshots >30 days old
-     ↓
-[SQLite: snapshots + failure_history + conversations]
-     ├─ 30 days × ~30 services × 12 checks/day = ~10K snapshots
-     └─ Size: ~20-25MB
-     ↓
-     ├─ BRANCH 1: Background Agent (every 5 min)
-     │  ├→ detect_failures: Query snapshots, check failure_history
-     │  ├→ is_critical? If No → Skip. If Yes → Continue.
-     │  ├→ fetch_logs_and_context: Use LogReader + registry
-     │  └→ analyze_with_llm: Send to Llama 3.1 (GPU inference)
-     │     └→ Console output: Root cause analysis
-     │
-     └─ BRANCH 2: Interactive Chat (on user message)
-        ├→ Mother receives query via WebSocket
-        ├→ get_historical_trends(): Extract CPU/memory/failure data
-        ├→ detect OS, inject system context
-        ├→ Send to Llama 3.1 with enriched context
-        └→ Stream response back to browser
-```
-
-### Full System Architecture Diagram
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    MONIT-INTEL AGENT SYSTEM                          │
-└──────────────────────────────────────────────────────────────────────┘
-
-╔════════════════════════════════════════════════════════════════════╗
-║                        BACKEND (Server)                            ║
-║                                                                    ║
-║  ┌──────────────────┐                                             ║
-║  │  Monit Server    │  Runs on localhost:2812                     ║
-║  │  (beta-boy)      │  Monitors 30+ services                      ║
-║  │  Port 2812       │  Exposes XML status API                     ║
-║  └────────┬─────────┘                                             ║
-║           │ GET /_status?format=xml                               ║
-║           ▼                                                        ║
-║  ┌──────────────────────────────────────────┐                    ║
-║  │   ingest.py (Scheduler via systemd)      │                    ║
-║  │   - Runs every 5 minutes                 │                    ║
-║  │   - Polls Monit XML                      │                    ║
-║  │   - Parses service status + metrics      │                    ║
-║  │   - Stores complete snapshot raw_json    │                    ║
-║  └────────────┬─────────────────────────────┘                    ║
-║               │ INSERT snapshots, UPDATE failure_history          ║
-║               ▼                                                    ║
-║  ┌──────────────────────────────────────────┐                    ║
-║  │   SQLite: monit_history.db               │                    ║
-║  │   - snapshots (30-day rolling)           │                    ║
-║  │   - failure_history (state tracking)     │                    ║
-║  │   - conversations (chat history)         │                    ║
-║  │   - action_audit_log (executed commands) │                    ║
-║  └────────────┬────────────────────────────┘                     ║
-║               │                                                    ║
-║     ┌─────────┴────────────┐                                      ║
-║     │                      │                                      ║
-║     ▼ (every 5 min)        ▼ (on user message)                   ║
-║                                                                    ║
-║  ┌────────────────────┐  ┌──────────────────────┐                ║
-║  │  BACKGROUND AGENT  │  │   MOTHER (Chat)      │                ║
-║  │  (main.py daemon)  │  │   (agent/mother.py)  │                ║
-║  └────────────────────┘  └──────────────────────┘                ║
-║           │                        │                              ║
-║           ▼                        ▼                              ║
-║  ┌──────────────────────────────────────────────────┐             ║
-║  │   LangGraph Workflow (agent/graph.py)            │             ║
-║  │                                                  │             ║
-║  │   [1] detect_failures()                          │             ║
-║  │       └─ Query: status != 0                      │             ║
-║  │       └─ Check: NEW or CHANGED?                  │             ║
-║  │       └─ Set is_critical flag                    │             ║
-║  │           ▼                                      │             ║
-║  │   [2] fetch_logs_and_context()                   │             ║
-║  │       └─ Use LogReader + registry               │             ║
-║  │       └─ tail_file: /var/log/service.log        │             ║
-║  │       └─ newest_file: glob patterns             │             ║
-║  │       └─ journalctl: systemd units              │             ║
-║  │       └─ Apply max_lines per service            │             ║
-║  │           ▼                                      │             ║
-║  │   [3] analyze_with_llm()                         │             ║
-║  │       └─ if NOT is_critical: SKIP               │             ║
-║  │       └─ if is_critical:                         │             ║
-║  │           ├─ Send logs + context to Llama 3.1   │             ║
-║  │           └─ Return root cause analysis         │             ║
-║  └──────────────────────────────────────────────────┘             ║
-║           │                        │                              ║
-║           ▼                        ▼                              ║
-║  Console output              Stream response                      ║
-║  (root cause analysis)       via WebSocket                        ║
-║                                                                    ║
-║  ┌──────────────────────────────────────────────────┐             ║
-║  │   System Context Injection                       │             ║
-║  │   - Detect OS (Ubuntu, Fedora, Arch, etc.)     │             ║
-║  │   - Find package manager (apt, dnf, zypper)   │             ║
-║  │   - Get hostname, distro version               │             ║
-║  │   - Build system-aware LLM prompt              │             ║
-║  └──────────────────────────────────────────────────┘             ║
-║           │                                                       ║
-║           ▼                                                       ║
-║  ┌──────────────────────────────────────────────────┐             ║
-║  │   Ollama (GPU - RTX 4000)                        │             ║
-║  │   Llama 3.1:8b                                   │             ║
-║  │   - Inference time: 2-5 seconds                 │             ║
-║  │   - Understands OS-specific context             │             ║
-║  │   - Returns intelligent analysis                │             ║
-║  └──────────────────────────────────────────────────┘             ║
-║           │                                                       ║
-║           ▼                                                       ║
-║  ┌──────────────────────────────────────────────────┐             ║
-║  │   FastAPI Server (agent/api.py)                 │             ║
-║  │   - Port 8000                                    │             ║
-║  │   - HTTP Basic Auth (Monit credentials)         │             ║
-║  │   - WebSocket: /ws/chat                         │             ║
-║  │   - REST endpoints: /health, /status, etc.     │             ║
-║  │   - Message-based WebSocket auth               │             ║
-║  └──────────────────────────────────────────────────┘             ║
-║                                                                    ║
-╚════════════════════════════════════════════════════════════════════╝
-
-╔════════════════════════════════════════════════════════════════════╗
-║                      FRONTEND (Browser)                            ║
-║                                                                    ║
-║  ┌──────────────────────────────────────────────────┐             ║
-║  │   MU/TH/UR Chat UI (http://localhost:8000/chat)│             ║
-║  │                                                  │             ║
-║  │   [Login Overlay]                                │             ║
-║  │   ├─ Username: admin                             │             ║
-║  │   └─ Password: monit                             │             ║
-║  │       │ (localStorage cached for 30 min)        │             ║
-║  │       ▼                                          │             ║
-║  │   [Main Chat Interface]                          │             ║
-║  │   ├─ Alien aesthetic (phosphor green)           │             ║
-║  │   ├─ CRT scanlines effect                       │             ║
-║  │   ├─ Message history display                    │             ║
-║  │   ├─ Input field for user queries               │             ║
-║  │   └─ LOGOUT button (top-right)                  │             ║
-║  │       └─ 30-min timeout triggers auto-logout    │             ║
-║  │       └─ Activity resets timeout                │             ║
-║  │                                                  │             ║
-║  │   [WebSocket Connection]                         │             ║
-║  │   ├─ Initial: First message contains auth       │             ║
-║  │   ├─ Ongoing: "type": "message", "content": ... │             ║
-║  │   └─ Auto-reconnect on disconnect               │             ║
-║  └──────────────────────────────────────────────────┘             ║
-║                                                                    ║
-║  User Query Flow:                                                  ║
-║  ┌─ User: "What about CPU usage?"                  ║             ║
-║  │  ▼                                               ║             ║
-║  │  Browser sends JSON via WebSocket               ║             ║
-║  │  ▼                                               ║             ║
-║  │  Mother class receives query                    ║             ║
-║  │  ▼                                               ║             ║
-║  │  get_historical_trends() fetches 30 days data  ║             ║
-║  │  ├─ CPU metrics: min/avg/max per service       ║             ║
-║  │  ├─ Memory usage: docker 101MB, nordvpn 119MB  ║             ║
-║  │  └─ Status: "docker HEALTHY", "alpha FAILED"   ║             ║
-║  │  ▼                                               ║             ║
-║  │  LLM gets enriched prompt with actual data     ║             ║
-║  │  ▼                                               ║             ║
-║  │  Llama 3.1: "CPU is stable. nordvpnd at 0.2%"│             ║
-║  │  ▼                                               ║             ║
-║  │  Response streams via WebSocket                 ║             ║
-║  │  ▼                                               ║             ║
-║  │  Browser displays: "CPU usage analysis..."     ║             ║
-║  └─ Done                                            ║             ║
-║                                                                    ║
-╚════════════════════════════════════════════════════════════════════╝
-```
-                 │ If NEW/CHANGED
-                 ▼
-    ┌─────────────────────────────────────────┐
-    │   agent/graph.py (LangGraph DAG)        │
-    │   └─ fetch_logs_and_context()           │
-    │      Use Log Registry                   │
-    │      (per-service max_lines)            │
-    └────────────┬────────────────────────────┘
-                 │
-        ┌────────┴────────┐
-        │                 │
-        ▼                 ▼
-    ┌────────────┐   ┌──────────────┐
-    │ Log Files  │   │ Journalctl   │
-    │ (tail)     │   │ (systemd)    │
-    │ (glob)     │   │              │
-    └────────────┘   └──────────────┘
-        │                 │
-        └────────┬────────┘
-                 │ Log content (per-service lines)
-                 ▼
-    ┌─────────────────────────────────────────┐
-    │   agent/graph.py                        │
-    │   └─ analyze_with_llm()                 │
-    │      Llama 3.1:8b Analysis              │
-    │      (2-5 sec inference)                │
-    │      (Only runs for NEW/CHANGED)        │
-    └────────────┬────────────────────────────┘
-                 │
-                 ▼
-    ┌─────────────────────────────────────────┐
-    │   Console Output                        │
-    │   - Root cause analysis                 │
-    │   - Suggested remediation               │
-    │   - State tracking (NEW vs ONGOING)     │
-    └─────────────────────────────────────────┘
-```
+Key highlights:
+- **3-node LangGraph DAG** for failure detection and analysis
+- **30-day rolling snapshots** with CPU/memory/failure metrics
+- **OS-aware context injection** (Ubuntu = apt, Fedora = dnf, etc.)
+- **Per-service log limits** (50-150 lines) to optimize GPU usage
+- **Smart is_critical flag** to skip re-analyzing unchanged failures
+- **SQLite persistence** (~20-25MB for 30 days of history)
 
 ## 🌐 REST API
 
 Once the agent is running (via systemd or manually with `--api`), the REST API is available on `localhost:8000`.
 
-### Endpoints
+### Core Endpoints
 
-| Method | Endpoint | Purpose | Example |
-|--------|----------|---------|---------|
-| `GET` | `/` | API info & endpoints | `curl http://localhost:8000/` |
-| `GET` | `/health` | DB status & snapshot count | `curl http://localhost:8000/health` |
-| `GET` | `/status` | All services + last_checked | `curl http://localhost:8000/status` |
-| `POST` | `/analyze` | Trigger analysis | `curl -X POST http://localhost:8000/analyze` |
-| `GET` | `/history?service=X&days=7` | Failure history for service | `curl "http://localhost:8000/history?service=system_backup&days=7"` |
-| `GET` | `/logs/{service}` | Latest logs for service | `curl http://localhost:8000/logs/nordvpn_status` |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/health` | Check agent status & database connectivity |
+| `GET` | `/status` | List all services and their status |
+| `POST` | `/mother/chat` | Query agent about system health |
+| `GET` | `/mother/history` | View conversation history |
 
-### Examples
+**Quick Examples:**
 
 ```bash
-# Check if agent is healthy
-curl http://localhost:8000/health
-# {"status": "healthy", "database": "connected", "snapshots": 150}
+# Check agent health
+curl -u your_username:your_password http://localhost:8000/health
 
-# Get all service statuses
-curl http://localhost:8000/status | jq '.[] | {service: .service, status: .status}'
-
-# Trigger analysis (returns LLM output if failures detected)
-curl -X POST http://localhost:8000/analyze
-
-# Query failure history for last 7 days
-curl "http://localhost:8000/history?service=system_backup&days=7"
-
-# Get latest logs for a service
-curl http://localhost:8000/logs/nordvpn_status | jq '.logs' | head -20
-```
-
-## 👩‍💻 Mother: Interactive Chat Interface (Phase 6)
-
-**Mother** is an interactive chat interface that lets you query the agent in natural language. It automatically injects service context and failure history into the LLM prompt.
-
-### Mother REST API Endpoints
-
-| Method | Endpoint | Purpose | Example |
-|--------|----------|---------|---------|
-| `POST` | `/mother/chat` | Chat with agent | `curl -X POST http://localhost:8000/mother/chat -H "Content-Type: application/json" -d '{"query": "Why is system_backup failing?"}'` |
-| `GET` | `/mother/history` | View conversations | `curl http://localhost:8000/mother/history?limit=10` |
-| `DELETE` | `/mother/clear` | Clear chat history | `curl -X DELETE http://localhost:8000/mother/clear` |
-
-### Mother CLI
-
-Use the interactive Mother CLI for a better UX:
-
-```bash
 # Chat with the agent
-pixi run python mother-cli.py chat "Why is nordvpn_status failing?"
+curl -X POST http://localhost:8000/mother/chat \
+  -u your_username:your_password \
+  -d '{"query": "Why is docker failing?"}'
 
-# View conversation history
-pixi run python mother-cli.py history --limit 20
-
-# Clear all conversations
-pixi run python mother-cli.py clear
-
-# Interactive mode (type 'help' for commands)
-pixi run python mother-cli.py interactive
+# View all services
+curl -u your_username:your_password http://localhost:8000/status | jq
 ```
 
-### How Mother Works
+For all API endpoints and examples, see [ARCHITECTURE.md → WebSocket Protocol](docs/ARCHITECTURE.md#websocket-protocol).
 
-1. **Context Injection**: Extracts mentioned services from your query
-2. **Status Lookup**: Fetches current service status and failure history
-3. **Log Retrieval**: Uses LogReader to fetch relevant logs
-4. **LLM Analysis**: Passes enriched context to Llama 3.1 for analysis
-5. **Conversation Persistence**: Stores all chats in SQLite for history
+## 👩‍💻 Mother: Interactive Chat Interface
 
-**Example conversation:**
+**Mother** (MU/TH/UR) is the conversational interface to the agent. It automatically:
+
+1. **Gathers context** from 30 days of historical snapshots
+2. **Detects your OS** (Ubuntu, Fedora, Arch, etc.)
+3. **Injects system awareness** into LLM prompts
+4. **Streams responses** via WebSocket with natural language analysis
+
+**Examples:**
 ```
-You: "Why is system_backup failing?"
+User: "What's the overall system health?"
+Mother: "All services are healthy. Docker at 0.1% CPU, nordvpn at 0.2%..."
 
-Agent: [Analyzes current system_backup status, fetches last 150 lines of logs, 
-        queries failure history over last 7 days, and provides root cause analysis]
+User: "Why did system_backup fail yesterday?"
+Mother: "The backup failed due to disk space exhaustion in /data/tank..."
 
-Agent Response: "system_backup has failed 3 times in the last 7 days. The most 
-recent failure shows disk space exhaustion in /data/tank. The backup_log 
-indicates the backup process timed out after 4 hours when trying to sync 
-2.5TB of data. Recommendation: Expand storage or increase timeout threshold."
-```
-
----
-
-## 🛠️ Actions: Safe Command Execution (Phase 7)
-
-**Actions** allow the agent to suggest AND execute safe system commands for remediation. All actions are whitelisted, require user approval, and logged for audit.
-
-### Safe Actions Whitelist
-
-| Action | Command | Use Case |
-|--------|---------|----------|
-| `systemctl_restart` | `systemctl restart <service>` | Recover from transient failures |
-| `systemctl_stop` | `systemctl stop <service>` | Prevent cascading failures |
-| `systemctl_start` | `systemctl start <service>` | Bring service online |
-| `systemctl_status` | `systemctl status <service>` | Get detailed systemd state |
-| `monit_monitor` | `sudo monit monitor <service>` | Force Monit re-check |
-| `monit_start` | `sudo monit start <service>` | Tell Monit to bring online |
-| `monit_stop` | `sudo monit stop <service>` | Tell Monit to stop watching |
-| `journalctl_view` | `journalctl -u <service> -n 50` | View service logs |
-
-### Actions REST API Endpoints
-
-| Method | Endpoint | Purpose | Example |
-|--------|----------|---------|---------|
-| `POST` | `/mother/actions/suggest` | Preview action without executing | `curl -X POST http://localhost:8000/mother/actions/suggest -d '{"action": "systemctl_restart", "service": "nordvpnd"}'` |
-| `POST` | `/mother/actions/execute` | Execute action with approval | `curl -X POST http://localhost:8000/mother/actions/execute -d '{"action": "systemctl_status", "service": "nordvpnd", "approve": true}'` |
-| `GET` | `/mother/actions/audit` | View action audit log | `curl http://localhost:8000/mother/actions/audit?limit=50` |
-
-### Actions CLI
-
-```bash
-# Suggest an action (preview only, doesn't execute)
-pixi run python mother-cli.py actions suggest systemctl_restart nordvpnd
-
-# Execute with approval
-pixi run python mother-cli.py actions execute systemctl_restart nordvpnd --approve
-
-# View audit log (all executed actions)
-pixi run python mother-cli.py actions audit --limit 50
+User: "Can you restart docker?"
+Mother: "I can help with that. Execute: systemctl restart docker (y/n)?"
 ```
 
-### Execution Flow
+For detailed Mother architecture, including context injection, log retrieval, and conversation persistence, see [ARCHITECTURE.md → Two Parallel Systems](docs/ARCHITECTURE.md#two-parallel-systems).
 
-```
-1. Agent detects failure
-2. Agent suggests action: "Consider restarting nordvpnd"
-3. User confirms via CLI: --approve flag
-4. Action is whitelisted and approved
-5. Command executes (e.g., systemctl restart nordvpnd)
-6. Result logged to audit_audit_log table in SQLite
-7. User sees output + confirmation
-```
+## 🛠️ Actions: Safe Command Execution
 
----
+**Actions** let the agent suggest and execute safe system commands with your approval. All actions are:
+- ✅ **Whitelisted** - Only safe commands allowed
+- ✅ **Audited** - Every action logged to SQLite
+- ✅ **Approved** - Requires user confirmation
+
+**Safe Actions:**
+- `systemctl_restart` - Restart a service
+- `systemctl_stop` - Stop a service
+- `systemctl_status` - View service status
+- `journalctl_view` - View service logs
+
+For complete whitelist, audit log schema, and execution flow, see [ARCHITECTURE.md → Database Schema](docs/ARCHITECTURE.md#database-schema).
 
 ## ⚙️ Configuration
 
-### Customize Service Log Registry
+### Quick Customization
 
-Edit `src/monit_intel/tools/log_reader.py` to add or modify how logs are fetched:
+**Adjust monitoring interval:**
+```python
+# Edit: src/monit_intel/main.py
+MONITOR_INTERVAL = 300  # 5 minutes (in seconds)
+```
+
+**Customize session timeout:**
+```javascript
+// Edit: src/monit_intel/agent/static/chat.html
+const SESSION_TIMEOUT = 1800000; // 30 minutes (milliseconds)
+```
+
+**Change database retention:**
+```python
+# Edit: src/monit_intel/ingest.py
+RETENTION_DAYS = 30  # Keep 30 days of snapshots
+```
+
+### Adding New Services to Log Registry
+
+Edit `src/monit_intel/tools/log_reader.py`:
 
 ```python
 log_registry = {
-    "my_new_service": {
-        "strategy": "tail_file",              # Options: tail_file, newest_file, journalctl
-        "path": "/var/log/my_service.log",   # For tail_file
-        "pattern": "/var/log/my_service_*.log",  # For newest_file (glob)
-        "unit": "my-service.service",         # For journalctl
-        "max_lines": 100                      # Context window size
+    "my_service": {
+        "strategy": "tail_file",              # or "newest_file", "journalctl"
+        "path": "/var/log/my_service.log",   # for tail_file
+        "max_lines": 100
     }
 }
 ```
 
 **Strategies:**
-- `tail_file`: Read last N lines from a single file
-- `newest_file`: Find newest file matching glob pattern, then tail
-- `journalctl`: Query systemd journal for a specific unit
+- `tail_file` - Read last N lines from single file
+- `newest_file` - Find newest file matching glob pattern, then tail
+- `journalctl` - Query systemd journal for service unit
 
-### Customize LLM System Prompt
+For all configuration options, see [ARCHITECTURE.md → Configuration & Customization](docs/ARCHITECTURE.md#configuration--customization).
 
-Edit `src/monit_intel/agent/mother.py` in the `query_agent()` method:
+## 🧠 Key Features
 
-```python
-system_prompt = f"""You are MU/TH/UR, an expert system administrator.
-You are running on {self.system_info['distro']} ({self.system_info['os']}).
-Package manager: {self.system_info['package_manager']}
-Hostname: {self.system_info['hostname']}
-
-GUIDELINES:
-- Provide OS-specific commands only
-- Analyze failures with real data
-- Never suggest destructive operations without explicit approval
-- Include relevant logs in analysis
-- Be concise and actionable
-"""
-```
-
-### Adjust Monitoring Intervals
-
-Edit `src/monit_intel/main.py`:
-
-```python
-# Change from 5 minutes to custom interval (in seconds)
-MONITOR_INTERVAL = 300  # 5 minutes
-```
-
-Edit systemd timer for ingest (production):
-```bash
-sudo systemctl edit monit-intel-ingest.timer
-# Modify: OnBootSec=5min, OnUnitActiveSec=5min
-```
-
-### Session Timeout Configuration
-
-Edit `src/monit_intel/agent/static/chat.html`:
-
-```javascript
-// Current: 30 minutes
-const SESSION_TIMEOUT = 1800000; // milliseconds
-
-// Change to 1 hour:
-const SESSION_TIMEOUT = 3600000;
-
-// Change to 15 minutes:
-const SESSION_TIMEOUT = 900000;
-```
-
-### Database Retention Policy
-
-Edit `src/monit_intel/ingest.py`:
-
-```python
-# Current: Keep 30 days of snapshots
-RETENTION_DAYS = 30
-
-# Change to 14 days:
-RETENTION_DAYS = 14
-
-# Change to 60 days:
-RETENTION_DAYS = 60
-```
-
----
-
-## 🧠 Features
-
-### ✅ Hybrid State Management
-- Tracks per-service failure history in SQLite
-- Detects NEW vs ONGOING failures
-- Skips LLM analysis for unchanged failures (saves GPU compute)
-- Example: Service fails → analyzed. Still failing 5 min later → skipped
-
-### ✅ 30-Day Data Retention
-- Automatic cleanup after each ingestion
-- Keeps database size ~20-25MB max
-- Suitable for 30 days of history at 30 services / 5 min interval
-
-### ✅ Configurable Per-Service Log Limits
-Each service gets optimized context window:
-- `system_backup`: 150 lines (verbose backups)
-- `network_resurrect`: 100 lines (network operations)
-- `gamma_conn`, `nordvpn_reconnect`: 75 lines (medium verbosity)
-- `zfs_sanoid`: 100 lines (storage operations)
-- `nordvpn_status`: 50 lines (terse service)
-
-### ✅ Read-Only Analysis
-- Agent reads logs but cannot execute destructive commands
-- Safe for automated monitoring
-
-## 📜 Log Registry
-
-The agent automatically knows which logs to fetch for each service:
-
-| Service | Strategy | Path/Unit | Max Lines |
-|---------|----------|-----------|-----------|
-| `system_backup` | Latest file | `/data/tank/backups/sys_restore/backup_log_*.log` | 150 |
-| `nordvpn_reconnect` | Tail file | `/var/log/nordvpn-reconnect.log` | 75 |
-| `nordvpn_status` | Journalctl | `nordvpnd.service` | 50 |
-| `gamma_conn` | Journalctl | `tailscaled.service` | 75 |
-| `network_resurrect` | Tail file | `/var/log/monit-network-restart.log` | 100 |
-| `zfs_sanoid` | Journalctl | `sanoid.service` | 100 |
-
-## 🛠️ Configuration
-
-### Extend the Log Registry
-
-Edit `tools/log_reader.py`, function `get_logs_for_service()`:
-
-```python
-log_registry = {
-    "my_service": {
-        "strategy": "tail_file",           # or "newest_file", "journalctl"
-        "path": "/path/to/logfile.log",   # for tail_file
-        "pattern": "glob_pattern",         # for newest_file
-        "unit": "service.service",         # for journalctl
-        "max_lines": 75                    # customize per-service context
-    }
-}
-```
-
-### Customize Llama Prompt
-
-Edit `agent/graph.py`, function `analyze_with_llm()`:
-
-```python
-system_prompt = """..."""  # Modify the system message here
-```
-
-## 📊 Database Schema
-
-### snapshots (30-day rolling window)
-```sql
-CREATE TABLE snapshots (
-    id INTEGER PRIMARY KEY,
-    timestamp DATETIME,
-    service_name TEXT,
-    status INTEGER,       -- 0 = OK, other = failed
-    raw_json TEXT        -- Full Monit service data
-);
-```
-
-### failure_history (state tracking)
-```sql
-CREATE TABLE failure_history (
-    service_name TEXT PRIMARY KEY,
-    last_status INTEGER,
-    last_checked DATETIME,
-    times_failed INTEGER   -- How many times this service has failed
-);
-```
+- ✅ **Hybrid State Management** - Detects NEW vs ONGOING failures, skips re-analysis of unchanged failures (saves GPU)
+- ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
+- ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
+- ✅ **OS-Aware Commands** - Detects Ubuntu/Fedora and suggests apt/dnf automatically
+- ✅ **Action Audit Trail** - All executed commands logged to SQLite
+- ✅ **Read-Only by Default** - Agent can't execute destructive commands without approval
 
 ## 🔐 Security
 
@@ -1190,7 +509,7 @@ CREATE TABLE failure_history (
 - ✅ **Scoped logs:** Only reads paths specified in Log Registry
 - ⚠️ **No HTTPS:** Run behind reverse proxy (nginx) for production TLS
 
-For detailed security architecture, see [SECURITY.md](SECURITY.md).
+For detailed security architecture, see [SECURITY.md](docs/SECURITY.md).
 
 ---
 
