@@ -166,22 +166,77 @@ class Mother:
             if result.get("error"):
                 return ""  # Service not in registry, silently skip
             logs = result.get("logs")
-            if logs:
+            # Skip if logs are empty or just journalctl's "No entries" message
+            if logs and logs.strip() and "-- No entries --" not in logs:
                 return f"\n--- Recent logs for {service_name} ---\n{logs}"
             else:
                 return ""  # No logs found, silently skip
         except Exception as e:
             return ""  # Error fetching, silently skip
 
-    def get_historical_trends(self, days: int = 7) -> str:
-        """Get historical trend data for all services over the past N days."""
+    def get_monitored_services_info(self) -> str:
+        """Return information about all monitored services and their log strategies."""
+        service_context = self.get_service_context()
+        
+        if not service_context:
+            return "No services currently being monitored."
+        
+        lines = ["# Monitored Services\n"]
+        lines.append(f"Total services: {len(service_context)}\n")
+        
+        # Group services by status
+        healthy = [s for s, info in service_context.items() if info["healthy"]]
+        failed = [s for s, info in service_context.items() if not info["healthy"]]
+        
+        if healthy:
+            lines.append(f"\n## Healthy Services ({len(healthy)}):")
+            for service in sorted(healthy):
+                lines.append(f"  • {service}")
+        
+        if failed:
+            lines.append(f"\n## Failed Services ({len(failed)}):")
+            for service in sorted(failed):
+                lines.append(f"  • {service}")
+        
+        # Add log source information
+        lines.append("\n## Log Sources:")
+        log_reader = self.log_reader
+        log_registry = {
+            "system_backup": {"strategy": "newest_file", "source": "/data/tank/backups/sys_restore/backup_log_*.log"},
+            "nordvpn_reconnect": {"strategy": "tail_file", "source": "/var/log/nordvpn-reconnect.log"},
+            "nordvpn_status": {"strategy": "journalctl", "source": "nordvpnd.service"},
+            "gamma_conn": {"strategy": "journalctl", "source": "tailscaled.service"},
+            "network_resurrect": {"strategy": "tail_file", "source": "/var/log/monit-network-restart.log"},
+            "sanoid_errors": {"strategy": "journalctl", "source": "sanoid.service"},
+            "zfs-zed": {"strategy": "journalctl", "source": "zfs-zed.service"},
+        }
+        
+        lines.append("\n### Configured Log Sources:")
+        for service, info in sorted(log_registry.items()):
+            lines.append(f"  • {service}: {info['strategy']} ({info['source']})")
+        
+        docker_services = [s for s in service_context if "running" in s or "http" in s]
+        if docker_services:
+            lines.append("\n### Docker-based Services (logs require sudo):")
+            for service in sorted(docker_services):
+                lines.append(f"  • {service}")
+        
+        lines.append("\n### Fallback Strategy:")
+        lines.append("  Services not in configured log sources will attempt journalctl query")
+        lines.append("  with service name variations (e.g., service_name → service-name.service)")
+        
+        return "\n".join(lines)
+
+    def get_historical_trends(self, services: List[str] = None, days: int = 30) -> str:
+        """Get historical trend data for specific services or all services over the past N days."""
         import json
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get all services
-        cursor.execute("SELECT DISTINCT service_name FROM snapshots")
-        services = [row[0] for row in cursor.fetchall()]
+        # If no specific services requested, use all
+        if not services:
+            cursor.execute("SELECT DISTINCT service_name FROM snapshots")
+            services = [row[0] for row in cursor.fetchall()]
         
         trends = []
         for service in services:
@@ -283,6 +338,22 @@ class Mother:
             self._store_conversation(user_query, easter_egg, "", [])
             return easter_egg
         
+        # Check if user is asking about monitoring capabilities
+        query_lower = user_query.lower()
+        if any(phrase in query_lower for phrase in [
+            "what services are you monitoring",
+            "which services do you monitor",
+            "what do you monitor",
+            "monitoring capabilities",
+            "available services",
+            "list of services",
+            "tell me about the services",
+            "what can you monitor"
+        ]):
+            response = self.get_monitored_services_info()
+            self._store_conversation(user_query, response, "", [])
+            return response
+        
         # Extract service mentions from query
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
@@ -290,8 +361,11 @@ class Mother:
         # Build context-enriched prompt with current status
         context_info = self._build_context_info(mentioned_services, service_context)
         
-        # Add historical trend data
-        historical_info = self.get_historical_trends(days=30)
+        # Add historical trend data ONLY for mentioned services
+        historical_info = self.get_historical_trends(services=mentioned_services, days=30)
+        
+        # Determine if user asked about specific services or general system
+        asking_about_specific = len(mentioned_services) > 0
         
         # Invoke LLM directly with context
         try:
@@ -304,16 +378,20 @@ IMPORTANT GUIDELINES:
 - Do NOT recommend update commands unless directly asked
 - When recommending commands, use {self.system_info['package_manager']} commands, NOT other package managers
 - Only mention the update command if user specifically asks about updating
+- Only report CPU/memory metrics when directly relevant to the user's question
+- Be concise and focus on answering the user's specific question
+- Do NOT speculate about hardware or systems - only use facts provided
+- If user mentioned specific services, ONLY discuss those services in detail
+- Do NOT introduce unrelated services unless user asked for overview
 
-You have access to current service status information AND historical trend data over the past 30 days.
-When users ask about changes, trends, history, CPU usage, or resource metrics:
+{"You have access to current service status information AND historical trend data for the specific services mentioned." if asking_about_specific else "You have access to current service status and historical trend data over the past 30 days."}
+When users specifically ask about changes, trends, history, CPU usage, or resource metrics:
 - Provide specific numbers and percentages from the historical data
-- Report average, minimum, and maximum values for CPU usage
+- Report average, minimum, and maximum values for CPU usage when asked
 - Reference the CPU Trend data provided in the historical section
 - Mention memory usage percentages and sizes when relevant
-- Be specific about which services use the most resources
 
-Be concise, actionable, and focus on answering the user's specific question. Always tailor advice to the specific OS and package manager."""
+Be concise, actionable, and tailor advice to the specific OS and package manager."""
             
             response = llm.invoke([
                 ("system", system_prompt),
@@ -369,11 +447,17 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
         mentioned = []
         query_lower = query.lower()
         
+        # Direct service name matching
         for service in service_context.keys():
-            if service.lower() in query_lower or service.replace("_", " ").lower() in query_lower:
+            # Try exact match, underscore variations, and partial match
+            if (service.lower() in query_lower or 
+                service.replace("_", " ").lower() in query_lower or
+                service.replace("_", "-").lower() in query_lower):
                 mentioned.append(service)
         
-        return mentioned if mentioned else list(service_context.keys())[:3]
+        # Only return explicitly mentioned services
+        # Don't default to random services - better to provide generic context
+        return mentioned
 
     def _build_context_info(self, services: List[str], context: Dict) -> str:
         """Build formatted context information for LLM."""

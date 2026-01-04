@@ -133,10 +133,59 @@ class LogReader:
                 "path": "/var/log/monit-network-restart.log",
                 "max_lines": 100  # Network logs can be verbose
             },
-            "zfs_sanoid": {
+            "sanoid_errors": {
                 "strategy": "journalctl",
                 "unit": "sanoid.service",
                 "max_lines": 100  # Storage operations can be detailed
+            },
+            "zfs-zed": {
+                "strategy": "journalctl",
+                "unit": "zfs-zed.service",
+                "max_lines": 100  # ZFS event daemon logs
+            },
+            # Docker-based services - logs require docker exec with sudo
+            # These are explicitly marked to skip journalctl fallback
+            "immich_server_running": {
+                "strategy": "docker",
+                "container": "immich-server",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "immich_ml_running": {
+                "strategy": "docker",
+                "container": "immich-machine-learning",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "immich_pg_running": {
+                "strategy": "docker",
+                "container": "immich-postgres",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "immich_redis_running": {
+                "strategy": "docker",
+                "container": "immich-redis",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "jellyfin_running": {
+                "strategy": "docker",
+                "container": "jellyfin",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "miniflux_running": {
+                "strategy": "docker",
+                "container": "miniflux",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
+            },
+            "postgres_running": {
+                "strategy": "docker",
+                "container": "postgres",
+                "max_lines": 100,
+                "note": "Docker container - logs require docker access"
             }
         }
         
@@ -169,6 +218,16 @@ class LogReader:
         
         config = log_registry[service_name]
         strategy = config["strategy"]
+        
+        # Skip docker-based services (require sudo access)
+        if strategy == "docker":
+            return {
+                "service": service_name,
+                "strategy": "docker",
+                "logs": None,
+                "note": config.get("note", "Docker container logs require sudo access")
+            }
+        
         max_lines = config.get("max_lines", self.max_lines)
         
         # Temporarily set instance max_lines for this fetch
