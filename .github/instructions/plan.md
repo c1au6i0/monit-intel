@@ -26,6 +26,18 @@
   - ✅ Full month of historical data available to MU/TH/UR
   - ✅ Service failure rates and status history tracked
   - ✅ LLM can answer questions like "did we have failures?" with real data
+- ✅ **Phase 9: COMPLETE** - Security & Session Management
+  - ✅ HTTP Basic Authentication using Monit credentials
+  - ✅ Message-based WebSocket authentication (secure after initial login)
+  - ✅ 30-minute session timeout with automatic logout
+  - ✅ Logout button in chat UI header
+  - ✅ localStorage credential persistence (cached across page reloads)
+  - ✅ Activity-based session timer reset (timer resets on every user action)
+- ✅ **Phase 10: COMPLETE** - Enhanced Historical CPU/Memory Metrics
+  - ✅ CPU usage trends extracted from snapshots (min/avg/max over 30 days)
+  - ✅ Memory usage metrics included in historical analysis
+  - ✅ LLM can answer "What about CPU usage?" with actual trend data instead of generic advice
+  - ✅ Per-service metrics: docker, nordvpnd, tailscaled, etc. with real percentages
 
 ---
 
@@ -358,28 +370,47 @@ CREATE TABLE action_audit_log (
 
 ---
 
+## 🎯 Completed Phases Summary
+
+### Phase 1-4: Core Infrastructure ✅
+- Monit XML ingestion, SQLite storage, LangGraph DAG, REST API
+
+### Phase 5-7: Interactive Interface & Actions ✅
+- MU/TH/UR chat (CLI + Web UI), OS-aware responses, Safe command execution
+
+### Phase 8: Historical Analysis ✅
+- 30-day snapshots, failure tracking, historical context in LLM prompts
+
+### Phase 9: Security & Session Management ✅
+- HTTP Basic Auth, message-based WebSocket auth, 30-minute session timeout, logout button
+
+### Phase 10: Enhanced Metrics ✅
+- CPU/Memory trends in historical analysis, actual trend data instead of generic advice
+
+---
+
 ## 🎯 Next Steps
 
 ### Immediate (Week 1)
-1. Finalize Phase 6 & 7 specifications (this document).
-2. Prototype Mother CLI with basic `/mother/chat` endpoint.
-3. Implement `conversations` SQLite table.
+- [ ] Multi-host monitoring (extend to monitor multiple servers)
+- [ ] Extend log registry with additional services
+- [ ] Fine-tune Llama 3.1 system prompt for better root-cause analysis
 
 ### Short-term (Week 2-3)
-1. Build out Mother CLI command structure.
-2. Implement `ActionExecutor` with safe whitelist.
-3. Add action suggestion prompts to Llama 3.1 system message.
-4. Test action execution with curl + manual approval.
+- [ ] Slack/Email integration for alert escalation
+- [ ] Grafana dashboard pulling historical data from SQLite
+- [ ] Advanced session management (token refresh, remember-me)
+- [ ] User role-based access control (read-only vs admin actions)
 
 ### Medium-term (Month 2)
-1. Web UI for Mother (Streamlit or React).
-2. Advanced LLM prompt tuning for action recommendations.
-3. Audit log dashboard (view all executed actions).
-4. Integration testing with real service failures.
+- [ ] Fine-tuned Llama 3.1 model on server admin logs
+- [ ] Predictive failure alerts (detect patterns before failure)
+- [ ] Audit log dashboard with filtering/search
+- [ ] WebSocket compression for slow networks
 
 ### Long-term (Future)
-1. Fine-tuned Llama 3.1 model on server admin logs.
-2. Multi-host support (monitor multiple servers).
-3. Slack/Email integration for alerts and action approvals.
-4. Grafana dashboard pulling from SQLite history.
+- [ ] Distributed agent deployment across fleet
+- [ ] ML model for anomaly detection in metrics
+- [ ] Custom knowledge base integration (docs, runbooks)
+- [ ] Integration with PagerDuty, Jira for incident tracking
 

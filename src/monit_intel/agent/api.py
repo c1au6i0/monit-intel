@@ -18,14 +18,22 @@ from .graph import build_graph
 from .mother import Mother
 from .actions import ActionExecutor, ActionType
 from ..tools.log_reader import LogReader
+from ..chat_auth import verify_chat_credentials
 
-# Load credentials from environment (same as Monit)
-MONIT_USER = os.getenv("MONIT_USER", "admin")
-MONIT_PASS = os.getenv("MONIT_PASS", "monit")
+# Load Monit API credentials from environment
+MONIT_USER = os.getenv("MONIT_USER")
+MONIT_PASS = os.getenv("MONIT_PASS")
+
+# If Monit credentials not set in environment, raise error
+if not MONIT_USER or not MONIT_PASS:
+    raise RuntimeError(
+        "MONIT_USER and MONIT_PASS environment variables must be set. "
+        "See systemd env.conf or .env file."
+    )
 
 
 def verify_auth(authorization: str = Header(None)) -> str:
-    """Verify HTTP Basic Authentication against Monit credentials."""
+    """Verify HTTP Basic Authentication against chat credentials in database."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
     
@@ -37,7 +45,8 @@ def verify_auth(authorization: str = Header(None)) -> str:
         decoded = base64.b64decode(credentials).decode("utf-8")
         username, password = decoded.split(":", 1)
         
-        if username != MONIT_USER or password != MONIT_PASS:
+        # Verify against chat credentials in database
+        if not verify_chat_credentials(username, password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         return username
@@ -433,7 +442,8 @@ async def websocket_chat(websocket: WebSocket):
                     credentials = base64.b64decode(decoded_credentials).decode("utf-8")
                     username, password = credentials.split(":", 1)
                     
-                    if username == MONIT_USER and password == MONIT_PASS:
+                    # Verify against chat credentials in database
+                    if verify_chat_credentials(username, password):
                         authenticated = True
                         await websocket.send_json({
                             "type": "system",
