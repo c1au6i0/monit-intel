@@ -406,53 +406,35 @@ curl -u your_username:your_password http://localhost:8000/status | jq
 
 For all API endpoints and examples, see [ARCHITECTURE.md → WebSocket Protocol](docs/ARCHITECTURE.md#websocket-protocol).
 
-## 👩‍💻 Mother: Interactive Chat Interface
+## �️ Mother: AI Analysis & Recommendations
 
-**Mother** (MU/TH/UR) is the conversational interface to the agent. It automatically:
+**Mother** (MU/TH/UR) is the conversational AI interface to the agent. It automatically:
 
 1. **Gathers context** from 30 days of historical snapshots
 2. **Detects your OS** (Ubuntu, Fedora, Arch, etc.)
-3. **Injects system awareness** into LLM prompts
-4. **Streams responses** via WebSocket with natural language analysis
+3. **Analyzes root causes** of failures using LLM analysis
+4. **Provides remediation advice** and troubleshooting steps
+5. **Streams responses** via WebSocket in real-time
+
+**⚠️ Read-Only by Design:** Mother analyzes and advises only. All system commands are provided as suggestions for you to execute manually - never executed automatically. This ensures safety and keeps you in control.
 
 **Examples:**
 ```
-User: "What's the overall system health?"
-Mother: "All services are healthy. Docker at 0.1% CPU, nordvpn at 0.2%..."
+User: "Why is nordvpn failing?"
+Mother: "The nordvpn service crashed due to authentication timeout. 
+         You can restart it with: sudo systemctl restart nordvpnd"
 
-User: "Why did system_backup fail yesterday?"
-Mother: "The backup failed due to disk space exhaustion in /data/tank..."
+User: "What about CPU usage?"
+Mother: "CPU is stable at 0.1% average. nordvpn uses 0.2% max, 
+         tailscaled uses 0.1%. All normal."
 
-User: "Can you restart docker?"
-Mother: "I can help with that. Execute: systemctl restart docker (y/n)?"
+User: "How do I fix the alpha failures?"
+Mother: "The alpha service failed 5 times in 30 days due to timeout.
+         Try: sudo systemctl restart alpha
+         If that doesn't work, check logs with: journalctl -u alpha -n 50"
 ```
 
-For detailed Mother architecture, including context injection, log retrieval, and conversation persistence, see [ARCHITECTURE.md → Two Parallel Systems](docs/ARCHITECTURE.md#two-parallel-systems).
-
-## 🛠️ Actions: Safe Command Execution
-
-**Actions** let the agent suggest and execute safe system commands with your approval. All actions are:
-- ✅ **Whitelisted** - Only safe commands allowed
-- ✅ **Audited** - Every action logged to SQLite
-- ✅ **Approved** - Requires user confirmation
-
-**Safe Actions:**
-
-Systemd service control:
-- `systemctl_restart` - Restart a service
-- `systemctl_start` - Start a service
-- `systemctl_stop` - Stop a service
-- `systemctl_status` - View service status
-
-Monit control:
-- `monit_monitor` - Enable monitoring for a service
-- `monit_start` - Start a service via Monit
-- `monit_stop` - Stop a service via Monit
-
-Log viewing:
-- `journalctl_view` - View service logs (last 50 lines)
-
-For complete whitelist, audit log schema, and execution flow, see [ARCHITECTURE.md → Database Schema](docs/ARCHITECTURE.md#database-schema).
+For detailed Mother architecture, see [ARCHITECTURE.md → Two Parallel Systems](docs/ARCHITECTURE.md#two-parallel-systems).
 
 ## ⚙️ Configuration
 
@@ -502,9 +484,9 @@ For all configuration options, see [ARCHITECTURE.md → Configuration & Customiz
 - ✅ **Hybrid State Management** - Detects NEW vs ONGOING failures, skips re-analysis of unchanged failures (saves GPU)
 - ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
 - ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
-- ✅ **OS-Aware Commands** - Detects Ubuntu/Fedora and suggests apt/dnf automatically
-- ✅ **Action Audit Trail** - All executed commands logged to SQLite
-- ✅ **Read-Only by Default** - Agent can't execute destructive commands without approval
+- ✅ **OS-Aware Recommendations** - Detects Ubuntu/Fedora and suggests apt/dnf commands
+- ✅ **Analysis Audit Trail** - All analysis logged to SQLite
+- ✅ **Read-Only Design** - AI analyzes and suggests, you execute
 
 ## 🔐 Security
 
@@ -512,7 +494,8 @@ For all configuration options, see [ARCHITECTURE.md → Configuration & Customiz
 - ✅ **Monit credentials:** Stored in systemd env files (production, chmod 600) or .env (development, not in git)
 - ✅ **HTTP Basic Auth:** All REST endpoints require valid chat credentials
 - ✅ **WebSocket Auth:** Chat UI requires login with 30-minute session timeout
-- ✅ **Read-only agent:** Cannot execute destructive commands (`rm`, `kill`)
+- ✅ **Read-only by design:** Mother analyzes and advises only - never executes commands
+- ✅ **Audit logs:** All analysis and recommendations logged for transparency
 - ✅ **Scoped logs:** Only reads paths specified in Log Registry
 - ⚠️ **No HTTPS:** Run behind reverse proxy (nginx) for production TLS
 
