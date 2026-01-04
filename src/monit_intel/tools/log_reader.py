@@ -140,9 +140,30 @@ class LogReader:
             }
         }
         
+        # Try to find service in registry, otherwise use smart fallback
         if service_name not in log_registry:
+            # Fallback: Try journalctl with service name as unit
+            # Convert Monit service names to likely systemd unit names
+            unit_names = [
+                f"{service_name}.service",      # Direct match
+                f"{service_name.replace('_', '-')}.service",  # Replace underscores
+                service_name,                    # Raw service name (for custom units)
+            ]
+            
+            # Try each unit name
+            for unit in unit_names:
+                logs = self.query_journalctl(unit)
+                if logs and "Error querying" not in logs:
+                    return {
+                        "service": service_name,
+                        "strategy": "journalctl_fallback",
+                        "logs": logs
+                    }
+            
+            # If no journalctl logs found, return empty (will be silently skipped)
             return {
-                "error": f"Service '{service_name}' not in log registry",
+                "service": service_name,
+                "strategy": None,
                 "logs": None
             }
         
