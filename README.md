@@ -27,9 +27,20 @@ cd monit-intel
 pixi install
 ```
 
-### Step 2: Configure Credentials (Systemd)
+### Step 2: Configure Credentials
 
-Store credentials securely in systemd drop-in files (not in git, not in project folder):
+**Option A: Development (Local .env - Easy)**
+```bash
+cat > .env << EOF
+MONIT_USER=admin
+MONIT_PASS=your_monit_password
+MONIT_URL=http://localhost:2812/_status?format=xml
+EOF
+```
+
+**Option B: Production (Systemd - Secure & Recommended)**
+
+Credentials stored securely in systemd drop-in files (not in git, not in project folder):
 
 ```bash
 # Create environment files
@@ -58,9 +69,15 @@ sudo chmod 600 /etc/systemd/system/monit-intel-*/service.d/env.conf
 sudo systemctl daemon-reload
 ```
 
+**Benefits of Option B:**
+- ✅ Credentials NOT in git repo
+- ✅ Credentials NOT in project folder
+- ✅ Only readable by root (chmod 600)
+- ✅ Easy rotation without code redeploy
+
 ### Step 3: Set Up Chat Credentials
 
-Initialize chat UI login credentials (separate from Monit credentials):
+Chat authentication is **separate from Monit credentials**. Initialize the chat UI login credentials:
 
 ```bash
 cd monit-intel
@@ -68,24 +85,37 @@ cd monit-intel
 # Set your chat UI username and password
 PYTHONPATH=./src pixi run python -m monit_intel.chat_auth your_username your_secure_password
 
-# Verify setup
+# Check status
 PYTHONPATH=./src pixi run python << 'EOF'
 from monit_intel.chat_auth import get_chat_credentials_status
 status = get_chat_credentials_status()
 print(f"Chat credentials configured: {status['configured']}")
+print(f"Credentials count: {status['count']}")
 EOF
 ```
+
+**Note:** You can have different passwords for:
+- **Monit API** (in systemd env files or .env)
+- **Chat UI** (stored securely in SQLite with password hashing)
 
 ### Step 4: Verify Setup
 
 ```bash
-# Test database
+# Test Monit connection (using Monit credentials from systemd env)
+curl -u $(echo $MONIT_USER:$MONIT_PASS) http://localhost:2812/_status?format=xml | head -20
+
+# Test Ollama (should return model info)
+curl http://localhost:11434/api/tags | jq .
+
+# Test database (should show >0 snapshots)
 PYTHONPATH=./src pixi run python << 'EOF'
 import sqlite3
 conn = sqlite3.connect("monit_history.db")
 cursor = conn.cursor()
 cursor.execute("SELECT COUNT(*) FROM snapshots")
 print(f"✓ Database ready: {cursor.fetchone()[0]} snapshots")
+cursor.execute("SELECT COUNT(*) FROM chat_credentials")
+print(f"✓ Chat credentials: {cursor.fetchone()[0]} user(s) configured")
 conn.close()
 EOF
 ```
@@ -94,39 +124,63 @@ EOF
 
 ## 🚀 Quick Start
 
-### Install Systemd Services
+### Start the Services (Development)
 
+**Terminal 1: Start the agent with API**
 ```bash
-# One-time setup
-sudo bash ./config/systemd/install-services.sh
+cd monit-intel
+
+# Use your Monit credentials from systemd env or .env
+MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
 ```
 
-### Start Agent & Ingest
-
-```bash
-# Start agent
-sudo systemctl start monit-intel-agent.service
-
-# Start ingest timer (runs every 5 min)
-sudo systemctl start monit-intel-ingest.timer
-
-# View status
-sudo systemctl status monit-intel-agent.service
-systemctl list-timers monit-intel-ingest.timer
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete
 ```
 
-### Access Chat UI
+**Terminal 2: Start the ingestion (optional - runs automatically every 5 min in production)**
+```bash
+cd monit-intel
+pixi run ingest
+```
 
-Open your browser and login:
+### Access the Chat UI
+
+Open your browser:
 ```
 http://localhost:8000/chat
 ```
 
-Login with the **chat credentials** you set up in Step 3.
+Login with the **chat credentials** you set up in Step 3:
+- **Username:** Your chosen username
+- **Password:** Your chosen password
 
-### View Logs
+**Note:** These are **different from your Monit service password**. If you set them up as:
+```bash
+pixi run python -m monit_intel.chat_auth admin your_secure_password
+```
+
+Then login with:
+- Username: `admin`
+- Password: `your_secure_password`
+
+### Start the Services (Production with Systemd)
 
 ```bash
+# Install systemd services (one-time setup)
+sudo bash ./config/systemd/install-services.sh
+
+# Start agent
+sudo systemctl start monit-intel-agent.service
+sudo systemctl status monit-intel-agent.service
+
+# Start ingest timer
+sudo systemctl start monit-intel-ingest.timer
+systemctl list-timers monit-intel-ingest.timer
+
+# View logs
 journalctl -u monit-intel-agent.service -f
 ```
 
@@ -168,9 +222,6 @@ Bot:  "Analyzing logs... The backup process timed out due to disk space..."
 
 You:  "What about CPU usage in the last 30 days?"
 Bot:  "CPU trends are stable. Nordvpn averages 0.2%, docker 0.0%..."
-
-You:  "Restart docker"
-Bot:  "I can help with that. Execute: systemctl restart docker (y/n)?"
 ```
 
 ### 2. Interactive CLI Chat
@@ -289,7 +340,88 @@ sudo systemctl stop monit-intel-agent.service
 sudo systemctl disable monit-intel-agent.service  # Don't auto-start
 ```
 
+---
 
+## 📊 Example Queries & Responses
+
+Mother analyzes logs from **7 services with detailed logging** and provides immediate insights:
+
+### Query 1: Backup Analysis (system_backup)
+```
+You: "What about the system backup status?"
+
+Mother:
+The system backup completed successfully today with these metrics:
+- Transferred: 101,748,887 bytes
+- Speed: 10,713,592.95 bytes/sec
+- Speedup (compression): 153.08x
+- Time: 9.5 seconds
+
+No errors detected in the log. The backup is operating efficiently.
+```
+
+### Query 2: VPN Connection Status (nordvpn_connected)
+```
+You: "What VPN servers has nordvpn been using?"
+
+Mother:
+The VPN has connected to 19 different servers across multiple countries:
+- US locations (Dallas, Seattle, Kansas City)
+- New Zealand locations (Auckland, Wellington)
+- Other regions
+
+There are 3 failed connection attempts in the log, suggesting occasional
+connection stability issues. Current connection appears healthy.
+```
+
+### Query 3: Docker Service Issue (docker)
+```
+You: "Is there any issue with docker?"
+
+Mother:
+Yes, the Docker service is reporting DNS resolution failures:
+
+Recent logs show containers timing out trying to reach:
+- api.themoviedb.org (Jellyfin metadata service)
+- sync-v2.brave.com (Brave browser container)
+- www.omdbapi.com (OMDB API for media)
+
+Error pattern: "read udp 127.0.0.1:*->127.0.0.53:53: i/o timeout"
+This indicates DNS resolver (127.0.0.53:53) is unreachable or overloaded.
+
+Recommendation: Check systemd-resolved service or container DNS config.
+```
+
+### Query 4: Docker Service (Limited Log Access)
+```
+You: "What about the Jellyfin container status?"
+
+Mother:
+Jellyfin is a Docker container service. Here's what I know:
+- Status: healthy (last check 5 minutes ago)
+- CPU: 2.4%
+- Memory: 245 MB
+- Uptime: 14 days
+
+Note: Docker container logs require sudo/docker exec access which I cannot
+perform for security reasons. I report database metrics instead. For detailed
+Jellyfin logs, run: docker logs jellyfin
+```
+
+### Query 5: Disk/ZFS Status
+```
+You: "Check the sanoid errors service"
+
+Mother:
+ZFS snapshots are working correctly. Recent activity:
+- 12 snapshots created in the last 3 days
+- Pool status: all datasets healthy
+- No error messages in the service logs
+
+The sanoid service manages automated ZFS snapshots and cleanup.
+```
+
+---
 
 ## 🏗️ Architecture
 
@@ -298,7 +430,28 @@ sudo systemctl disable monit-intel-agent.service  # Don't auto-start
 1. **Background Agent** - Runs every 5 minutes, detects failures, and analyzes root causes using LangGraph + Llama 3.1
 2. **Interactive Chat** - User-facing WebSocket interface for querying system health with 30-day historical context
 
-**For detailed architecture information** including component design, data flow, workflow nodes, database schema, and performance characteristics, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Quick Example:**
+```bash
+# Query via chat UI
+User: "What about CPU usage in the last 30 days?"
+Mother: "Based on historical trends, docker averages 0.0% CPU, 
+         nordvpn 0.2%. All services show minimal consumption..."
+
+# Or via REST API
+curl -X POST http://localhost:8000/mother/chat \
+  -u your_username:your_password \
+  -d '{"query": "Why is docker failing?"}'
+```
+
+**For detailed architecture information** including component design, data flow, workflow nodes, database schema, WebSocket protocol, and performance characteristics, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Key highlights:
+- **3-node LangGraph DAG** for failure detection and analysis
+- **30-day rolling snapshots** with CPU/memory/failure metrics
+- **OS-aware context injection** (Ubuntu = apt, Fedora = dnf, etc.)
+- **Per-service log limits** (50-150 lines) to optimize GPU usage
+- **Smart is_critical flag** to skip re-analyzing unchanged failures
+- **SQLite persistence** (~20-25MB for 30 days of history)
 
 ## 🌐 REST API
 
@@ -308,10 +461,10 @@ Once the agent is running (via systemd or manually with `--api`), the REST API i
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| `GET` | `/health` | Agent status |
-| `GET` | `/status` | All services |
-| `POST` | `/mother/chat` | Query agent |
-| `GET` | `/mother/history` | Chat history |
+| `GET` | `/health` | Check agent status & database connectivity |
+| `GET` | `/status` | List all services and their status |
+| `POST` | `/mother/chat` | Query agent about system health |
+| `GET` | `/mother/history` | View conversation history |
 
 **Quick Examples:**
 
@@ -382,8 +535,41 @@ const SESSION_TIMEOUT = 1800000; // 30 minutes (milliseconds)
 RETENTION_DAYS = 30  # Keep 30 days of snapshots
 ```
 
+### Adding New Services to Log Registry
+
+Edit `src/monit_intel/tools/log_reader.py`:
+
+```python
+log_registry = {
+    "my_service": {
+        "strategy": "tail_file",              # or "newest_file", "journalctl"
+        "path": "/var/log/my_service.log",   # for tail_file
+        "max_lines": 100
+    }
+}
+```
+
+**Strategies:**
+- `tail_file` - Read last N lines from single file
+- `newest_file` - Find newest file matching glob pattern, then tail
+- `journalctl` - Query systemd journal for service unit
+
+For all configuration options, see [ARCHITECTURE.md → Configuration & Customization](docs/ARCHITECTURE.md#configuration--customization).
 
 
+
+## 🔐 Security
+
+- ✅ **Chat passwords:** Hashed with PBKDF2-SHA256 (stored in SQLite, never plain text)
+- ✅ **Monit credentials:** Stored in systemd env files (production, chmod 600) or .env (development, not in git)
+- ✅ **HTTP Basic Auth:** All REST endpoints require valid chat credentials
+- ✅ **WebSocket Auth:** Chat UI requires login with 30-minute session timeout
+- ✅ **Read-only by design:** Mother analyzes and advises only - never executes commands
+- ✅ **Audit logs:** All analysis and recommendations logged for transparency
+- ✅ **Scoped logs:** Only reads paths specified in Log Registry
+- ⚠️ **No HTTPS:** Run behind reverse proxy (nginx) for production TLS
+
+For detailed security architecture, see [SECURITY.md](docs/SECURITY.md).
 
 ---
 
@@ -415,3 +601,14 @@ Mother explains this limitation gracefully in responses.
 
 Automatically queried from systemd journal with smart unit name matching. Mother reports status, CPU, memory, and failure history.
 
+---
+
+## 📝 Next Steps & Future Enhancements
+
+- [ ] Multi-host monitoring (extend to monitor multiple servers)
+- [ ] Slack/Email alert escalation
+- [ ] Grafana dashboard for historical trends
+- [ ] Fine-tune Llama 3.1 model on server logs
+- [ ] Predictive failure detection
+- [ ] User role-based access control
+- [ ] Integration with PagerDuty / Jira
