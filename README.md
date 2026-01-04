@@ -84,10 +84,10 @@ Chat authentication is **separate from Monit credentials**. Initialize the chat 
 cd monit-intel
 
 # Set your chat UI username and password
-pixi run python -m monit_intel.chat_auth your_username your_secure_password
+PYTHONPATH=./src pixi run python -m monit_intel.chat_auth your_username your_secure_password
 
 # Check status
-pixi run python << 'EOF'
+PYTHONPATH=./src pixi run python << 'EOF'
 from monit_intel.chat_auth import get_chat_credentials_status
 status = get_chat_credentials_status()
 print(f"Chat credentials configured: {status['configured']}")
@@ -109,7 +109,7 @@ curl -u $(echo $MONIT_USER:$MONIT_PASS) http://localhost:2812/_status?format=xml
 curl http://localhost:11434/api/tags | jq .
 
 # Test database (should show >0 snapshots)
-pixi run python << 'EOF'
+PYTHONPATH=./src pixi run python << 'EOF'
 import sqlite3
 conn = sqlite3.connect("monit_history.db")
 cursor = conn.cursor()
@@ -233,7 +233,7 @@ Bot:  "I can help with that. Execute: systemctl restart docker (y/n)?"
 **Start the interactive CLI:**
 ```bash
 cd monit-intel
-pixi run hello-mother
+PYTHONPATH=./src pixi run hello-mother
 ```
 
 **Usage:**
@@ -554,7 +554,7 @@ journalctl -n 1
 ### Check Database State
 
 ```bash
-pixi run python << 'EOF'
+PYTHONPATH=./src pixi run python << 'EOF'
 import sqlite3
 conn = sqlite3.connect("monit_history.db")
 cursor = conn.cursor()
