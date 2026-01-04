@@ -482,6 +482,7 @@ For all configuration options, see [ARCHITECTURE.md → Configuration & Customiz
 ## 🧠 Key Features
 
 - ✅ **Hybrid State Management** - Detects NEW vs ONGOING failures, skips re-analysis of unchanged failures (saves GPU)
+- ✅ **Service Log Analysis** - Mother automatically fetches and analyzes recent logs for services in her context
 - ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
 - ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
 - ✅ **OS-Aware Recommendations** - Detects Ubuntu/Fedora and suggests apt/dnf commands
