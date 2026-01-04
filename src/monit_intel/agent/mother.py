@@ -165,6 +165,11 @@ class Mother:
             result = self.log_reader.get_logs_for_service(service_name)
             if result.get("error"):
                 return ""  # Service not in registry, silently skip
+            
+            # Check if this is a Docker service (requires sudo)
+            if result.get("strategy") == "docker":
+                return f"\n[Note: {service_name} is a Docker container - logs require elevated privileges and are not accessible for security reasons]"
+            
             logs = result.get("logs")
             # Skip if logs are empty or just journalctl's "No entries" message
             if logs and logs.strip() and "-- No entries --" not in logs:
@@ -240,6 +245,16 @@ class Mother:
         
         trends = []
         for service in services:
+            # Check date range of available data for this service
+            cursor.execute("""
+                SELECT MIN(timestamp), MAX(timestamp)
+                FROM snapshots
+                WHERE service_name = ?
+            """, (service,))
+            
+            date_range = cursor.fetchone()
+            earliest_date, latest_date = date_range if date_range[0] else (None, None)
+            
             # Count status changes
             cursor.execute("""
                 SELECT status, COUNT(*) as count
@@ -263,7 +278,12 @@ class Mother:
             latest = cursor.fetchone()
             if latest:
                 status = "HEALTHY" if latest[0] == 0 else "FAILED"
-                trends.append(f"  {service}: Currently {status}")
+                
+                # Add data age information
+                if earliest_date and latest_date:
+                    trends.append(f"  {service}: Currently {status} (data from {earliest_date[:10]} to {latest_date[:10]})")
+                else:
+                    trends.append(f"  {service}: Currently {status}")
                 
                 # Extract metrics from raw_json if available
                 if latest[2]:
@@ -364,6 +384,10 @@ class Mother:
         # Add historical trend data ONLY for mentioned services
         historical_info = self.get_historical_trends(services=mentioned_services, days=30)
         
+        # Determine actual data age to use in prompt
+        data_age_days = self._get_data_age_days(mentioned_services)
+        data_age_text = f"past {data_age_days} days" if data_age_days > 0 else "available data"
+        
         # Determine if user asked about specific services or general system
         asking_about_specific = len(mentioned_services) > 0
         
@@ -372,6 +396,19 @@ class Mother:
             # Build system-aware prompt
             system_prompt = f"""You are an expert system administrator assistant analyzing server health and providing insights.
 You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
+
+CRITICAL: If service logs are provided in the "Recent logs" section below, you MUST:
+1. Extract and highlight KEY METRICS from the logs (file sizes, transfer speeds, error codes, etc.)
+2. Analyze what the logs reveal about service behavior
+3. Quote specific important lines from the logs in your response
+4. Base conclusions on actual log data, not generic assumptions
+
+CRITICAL: If you see a note like "[Note: SERVICE is a Docker container - logs require elevated privileges...]":
+- DO NOT suggest checking /var/log/syslog or other system logs
+- Docker container logs are ONLY accessible inside the container
+- Simply state: "Logs are not accessible due to security restrictions"
+- Focus on the service status metrics provided instead
+- Do NOT make vague suggestions about alternatives that won't work
 
 IMPORTANT GUIDELINES:
 - Do NOT suggest system updates unless the user explicitly asks about updates
@@ -383,19 +420,25 @@ IMPORTANT GUIDELINES:
 - Do NOT speculate about hardware or systems - only use facts provided
 - If user mentioned specific services, ONLY discuss those services in detail
 - Do NOT introduce unrelated services unless user asked for overview
+- When stating time ranges, use the actual data range shown in the historical trends section
+- Do NOT claim services have been running for 30 days if data only covers 1 day
+- Do NOT recommend checking metrics "over the past 30 days" if the provided data only covers 1-2 days
 
-{"You have access to current service status information AND historical trend data for the specific services mentioned." if asking_about_specific else "You have access to current service status and historical trend data over the past 30 days."}
+{"You have access to current service status information AND detailed log data for the specific services mentioned. ANALYZE THE LOGS and include log-based findings in your response." if asking_about_specific else f"You have access to current service status and historical trend data for the {data_age_text}."}
 When users specifically ask about changes, trends, history, CPU usage, or resource metrics:
+- Base all recommendations on the actual data range provided (which may be less than 30 days)
 - Provide specific numbers and percentages from the historical data
 - Report average, minimum, and maximum values for CPU usage when asked
-- Reference the CPU Trend data provided in the historical section
+- Reference the date range shown in the trends data
 - Mention memory usage percentages and sizes when relevant
+
+LOGS PROVIDED: When "Recent logs" section appears below, these are REAL SERVICE LOGS you must analyze and cite.
 
 Be concise, actionable, and tailor advice to the specific OS and package manager."""
             
             response = llm.invoke([
                 ("system", system_prompt),
-                ("user", f"{user_query}\n\n--- Current System Status ---\n{context_info}\n\n--- Historical Trends (30 days) ---\n{historical_info}")
+                ("user", f"{user_query}\n\n--- Current System Status ---\n{context_info}\n\n--- Historical Trends ({data_age_text}) ---\n{historical_info}")
             ])
             
             response_text = response.content if hasattr(response, "content") else str(response)
@@ -407,6 +450,42 @@ Be concise, actionable, and tailor advice to the specific OS and package manager
         self._store_conversation(user_query, response_text, context_info + "\n\n" + historical_info, mentioned_services)
         
         return response_text
+
+    def _get_data_age_days(self, services: List[str]) -> int:
+        """Calculate the number of days of data available for the given services."""
+        if not services:
+            return 0
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        min_date = None
+        max_date = None
+        
+        for service in services:
+            cursor.execute("""
+                SELECT MIN(timestamp), MAX(timestamp)
+                FROM snapshots
+                WHERE service_name = ?
+            """, (service,))
+            
+            result = cursor.fetchone()
+            if result and result[0]:
+                if min_date is None or result[0] < min_date:
+                    min_date = result[0]
+                if max_date is None or result[1] > max_date:
+                    max_date = result[1]
+        
+        conn.close()
+        
+        if min_date and max_date:
+            from datetime import datetime
+            min_dt = datetime.fromisoformat(min_date.split(' ')[0])
+            max_dt = datetime.fromisoformat(max_date.split(' ')[0])
+            days_diff = (max_dt - min_dt).days + 1  # +1 to include both start and end days
+            return max(1, days_diff)
+        
+        return 0
 
     def _check_easter_eggs(self, query: str) -> str:
         """Check for easter egg triggers and return special responses."""
@@ -449,15 +528,41 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
         
         # Direct service name matching
         for service in service_context.keys():
-            # Try exact match, underscore variations, and partial match
-            if (service.lower() in query_lower or 
-                service.replace("_", " ").lower() in query_lower or
-                service.replace("_", "-").lower() in query_lower):
+            service_lower = service.lower()
+            # Try multiple matching strategies:
+            # 1. Exact service name match
+            if service_lower in query_lower:
                 mentioned.append(service)
+                continue
+            
+            # 2. Service name with underscores replaced by spaces
+            if service.replace("_", " ").lower() in query_lower:
+                mentioned.append(service)
+                continue
+            
+            # 3. Service name with underscores replaced by hyphens
+            if service.replace("_", "-").lower() in query_lower:
+                mentioned.append(service)
+                continue
+            
+            # 4. Partial word matching (e.g., "backup" matches "system_backup")
+            service_parts = service_lower.replace("_", " ").replace("-", " ").split()
+            for part in service_parts:
+                if len(part) > 2 and part in query_lower:  # Avoid matching short words
+                    mentioned.append(service)
+                    break
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_mentioned = []
+        for service in mentioned:
+            if service not in seen:
+                seen.add(service)
+                unique_mentioned.append(service)
         
         # Only return explicitly mentioned services
         # Don't default to random services - better to provide generic context
-        return mentioned
+        return unique_mentioned
 
     def _build_context_info(self, services: List[str], context: Dict) -> str:
         """Build formatted context information for LLM."""

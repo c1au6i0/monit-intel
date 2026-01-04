@@ -483,6 +483,10 @@ For all configuration options, see [ARCHITECTURE.md → Configuration & Customiz
 
 - ✅ **Hybrid State Management** - Detects NEW vs ONGOING failures, skips re-analysis of unchanged failures (saves GPU)
 - ✅ **Service Log Analysis** - Mother automatically fetches and analyzes recent logs for services in her context
+  - **7 Services with Direct Log Access:** system_backup, nordvpn_reconnect, nordvpn_status, gamma_conn, network_resurrect, sanoid_errors, zfs-zed
+  - **8 Docker Services (DB Only):** immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running, jellyfin_running, jellyfin_http, miniflux_running, postgres_running (logs require docker exec/sudo)
+  - **15+ Other Services (Journalctl Fallback):** Automatically queried from systemd journal with smart unit name matching
+  - Mother analyzes available logs and gracefully explains when logs are inaccessible
 - ✅ **30-Day Data Retention** - Automatic cleanup keeps database ~20-25MB
 - ✅ **Per-Service Log Limits** - Customized context windows (50-150 lines per service)
 - ✅ **OS-Aware Recommendations** - Detects Ubuntu/Fedora and suggests apt/dnf commands
@@ -614,6 +618,43 @@ nvidia-smi
 
 # If VRAM exhausted, reduce context window in log_reader.py
 ```
+
+### Understanding Service Log Accessibility
+
+Mother analyzes service health in two ways:
+
+**✅ Services with Direct Log Access** (Mother analyzes real logs):
+- `system_backup` - Reads newest backup_log_*.log file (17KB average)
+- `nordvpn_reconnect` - Reads /var/log/nordvpn-reconnect.log
+- `nordvpn_status` - Queries journalctl for nordvpnd.service
+- `gamma_conn` - Queries journalctl for tailscaled.service
+- `network_resurrect` - Reads /var/log/monit-network-restart.log
+- `sanoid_errors` - Queries journalctl for sanoid.service
+- `zfs-zed` - Queries journalctl for zfs-zed.service
+
+When querying these, Mother will extract and quote specific metrics from the logs in her response.
+
+**❌ Docker-Based Services** (Database only, logs inaccessible):
+- `immich_server_running`, `immich_ml_running`, `immich_pg_running`, `immich_redis_running`
+- `jellyfin_running`, `jellyfin_http`
+- `miniflux_running`
+- `postgres_running`
+
+These require `docker logs <container>` which requires sudo privileges. For security, the agent runs without sudo and cannot access Docker logs. Mother will explain this limitation when asked about these services.
+
+**🔄 Other Services** (Auto-fallback to journalctl):
+- All other monitored services automatically fall back to querying systemd journal
+- Mother tries unit name variations: `service.service`, `service-with-dashes.service`, etc.
+
+When logs ARE available, Mother will:
+1. Extract key metrics (file sizes, transfer speeds, error counts, etc.)
+2. Quote specific important lines from the logs
+3. Base conclusions on real log data
+
+When logs ARE NOT available, Mother will:
+1. Rely on Monit status information from the database
+2. Show historical CPU/memory trends if available
+3. Clearly explain why logs can't be accessed (e.g., "Docker container logs require elevated privileges")
 
 ---
 
