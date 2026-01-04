@@ -402,6 +402,8 @@ CRITICAL: If service logs are provided in the "Recent logs" section below, you M
 2. Analyze what the logs reveal about service behavior
 3. Quote specific important lines from the logs in your response
 4. Base conclusions on actual log data, not generic assumptions
+5. DO NOT hallucinate or invent information about tools like Prometheus/Grafana when analyzing logs
+6. DO NOT make up tool names or monitoring systems - only analyze what's actually provided
 
 CRITICAL: If you see a note like "[Note: SERVICE is a Docker container - logs require elevated privileges...]":
 - DO NOT suggest checking /var/log/syslog or other system logs

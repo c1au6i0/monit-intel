@@ -118,15 +118,30 @@ class LogReader:
                 "path": "/var/log/nordvpn-reconnect.log",
                 "max_lines": 75   # Medium verbosity
             },
+            "nordvpn_connected": {
+                "strategy": "tail_file",
+                "path": "/var/log/nordvpn-reconnect.log",
+                "max_lines": 75   # Same as nordvpn_reconnect (actual Monit service name)
+            },
             "nordvpn_status": {
                 "strategy": "journalctl",
                 "unit": "nordvpnd.service",
                 "max_lines": 50   # Terse service
             },
+            "nordvpnd": {
+                "strategy": "journalctl",
+                "unit": "nordvpnd.service",
+                "max_lines": 50   # Same as nordvpn_status (actual Monit service name)
+            },
             "gamma_conn": {
                 "strategy": "journalctl",
                 "unit": "tailscaled.service",
                 "max_lines": 75   # Medium verbosity
+            },
+            "tailscaled": {
+                "strategy": "journalctl",
+                "unit": "tailscaled.service",
+                "max_lines": 75   # Same as gamma_conn (actual Monit service name)
             },
             "network_resurrect": {
                 "strategy": "tail_file",
