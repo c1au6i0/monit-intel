@@ -7,7 +7,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=heverz
-WorkingDirectory=/home/heverz/py_projects/monit-intel
 
 # Set PYTHONPATH for module discovery
 Environment="PYTHONPATH=/home/heverz/py_projects/monit-intel/src"
@@ -32,7 +31,7 @@ SyslogIdentifier=monit-intel-ingest
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 ReadWritePaths=/home/heverz/py_projects/monit-intel
 
 [Install]
