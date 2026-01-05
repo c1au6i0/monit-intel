@@ -1,66 +1,94 @@
-#!/usr/bin/env python3
-"""Test REST API authentication with new chat credentials."""
+import os
+import requests
+from requests.auth import HTTPBasicAuth
 
-import base64
-import json
-import time
+BASE_URL = os.environ.get("MONIT_INTEL_URL", "http://localhost:8000")
+AUTH_USER = os.environ.get("MONIT_INTEL_USER", "admin")
+AUTH_PASS = os.environ.get("MONIT_INTEL_PASS", "RobaDaMatti")
 
-# Wait for server to be ready
-time.sleep(2)
 
-# Test cases
-test_cases = [
-    {
-        "name": "✓ Correct chat credentials",
-        "username": "admin",
-        "password": "testsecure123",
-        "expected": "success",
-    },
-    {
-        "name": "✗ Wrong password",
-        "username": "admin",
-        "password": "wrongpassword",
-        "expected": "fail",
-    },
-    {
-        "name": "✗ Non-existent user",
-        "username": "unknown",
-        "password": "anypassword",
-        "expected": "fail",
-    },
-]
+def test_health_requires_auth():
+    r = requests.get(f"{BASE_URL}/health", timeout=5)
+    assert r.status_code == 401
 
-import subprocess
 
-for test in test_cases:
-    username = test["username"]
-    password = test["password"]
-    credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
-    
-    result = subprocess.run(
-        [
-            "pixi", "run", "curl",
-            "-s", "-w", "\n%{http_code}",
-            "-H", f"Authorization: Basic {credentials}",
-            "http://localhost:8000/health"
-        ],
-        cwd="/home/heverz/py_projects/monit-intel",
-        capture_output=True,
-        text=True
+def test_health_with_auth():
+    r = requests.get(f"{BASE_URL}/health", auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS), timeout=5)
+    assert r.status_code == 200
+    data = r.json()
+    assert "status" in data and "database" in data and "snapshots" in data
+
+
+def test_status_requires_auth():
+    r = requests.get(f"{BASE_URL}/status", timeout=5)
+    assert r.status_code == 401
+
+
+def test_status_with_auth():
+    r = requests.get(f"{BASE_URL}/status", auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS), timeout=5)
+    assert r.status_code == 200
+
+
+def test_analyze_requires_auth():
+    r = requests.post(f"{BASE_URL}/analyze", json={}, timeout=5)
+    assert r.status_code == 401
+
+
+def test_analyze_with_auth():
+    r = requests.post(
+        f"{BASE_URL}/analyze",
+        json={},
+        auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS),
+        timeout=10,
     )
-    
-    output = result.stdout.strip().split('\n')
-    http_code = output[-1]
-    
-    if test["expected"] == "success":
-        if http_code == "200":
-            print(f"{test['name']}: HTTP {http_code}")
-        else:
-            print(f"{test['name']}: FAILED (got {http_code}, expected 200)")
-    else:
-        if http_code == "401":
-            print(f"{test['name']}: HTTP {http_code}")
-        else:
-            print(f"{test['name']}: FAILED (got {http_code}, expected 401)")
+    assert r.status_code == 200
 
-print("\nREST API authentication tests completed!")
+
+def test_history_requires_auth():
+    r = requests.get(f"{BASE_URL}/history?service=docker&days=7", timeout=5)
+    assert r.status_code == 401
+
+
+def test_history_with_auth():
+    r = requests.get(
+        f"{BASE_URL}/history?service=docker&days=7",
+        auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS),
+        timeout=5,
+    )
+    assert r.status_code in (200, 404)
+
+
+def test_logs_requires_auth():
+    r = requests.get(f"{BASE_URL}/logs/docker", timeout=5)
+    assert r.status_code == 401
+
+
+def test_logs_with_auth():
+    r = requests.get(
+        f"{BASE_URL}/logs/docker",
+        auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS),
+        timeout=5,
+    )
+    # Depending on environment, may be 200 (logs), 404 (no mapping), or 500 (error)
+    assert r.status_code in (200, 404, 500)
+
+
+def test_mother_chat_requires_auth():
+    r = requests.post(
+        f"{BASE_URL}/mother/chat",
+        json={"query": "hello"},
+        timeout=5,
+    )
+    assert r.status_code == 401
+
+
+def test_mother_chat_with_auth():
+    r = requests.post(
+        f"{BASE_URL}/mother/chat",
+        json={"query": "hello"},
+        auth=HTTPBasicAuth(AUTH_USER, AUTH_PASS),
+        timeout=10,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert "response" in data and isinstance(data["response"], str)

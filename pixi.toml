@@ -36,6 +36,7 @@ pytest = "pytest tests/"
 black = "black src/"
 ruff = "ruff check src/"
 mypy = "mypy src/"
+pytest-rest = "python -m pytest -q tests/test_rest_auth.py"
 
 [tool.pixi]
 # All dependencies defined in [dependencies] section above
