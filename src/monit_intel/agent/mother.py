@@ -117,7 +117,7 @@ class Mother:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
         context_parts.append(f"Current date/time: {current_time}")
         
-        # Database statistics
+        # Database statistics and service list
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -129,9 +129,10 @@ class Mother:
             cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM snapshots")
             min_ts, max_ts = cursor.fetchone()
             
-            # Get number of unique services
-            cursor.execute("SELECT COUNT(DISTINCT service_name) FROM snapshots")
-            num_services = cursor.fetchone()[0]
+            # Get list of all unique services
+            cursor.execute("SELECT DISTINCT service_name FROM snapshots ORDER BY service_name")
+            services = [row[0] for row in cursor.fetchall()]
+            num_services = len(services)
             
             conn.close()
             
@@ -139,6 +140,9 @@ class Mother:
             context_parts.append(f"  - Total snapshots collected: {total_snapshots}")
             context_parts.append(f"  - Date range: {min_ts} to {max_ts}")
             context_parts.append(f"  - Services monitored: {num_services}")
+            context_parts.append(f"  - Service list: {', '.join(services[:10])}")
+            if len(services) > 10:
+                context_parts.append(f"                and {len(services) - 10} more services")
         except Exception as e:
             context_parts.append(f"Database error: {e}")
         
@@ -460,11 +464,19 @@ class Mother:
             config_context = self.get_config_context()
             
             # Build system-aware prompt
-            system_prompt = f"""You are an expert system administrator assistant analyzing server health and providing insights.
+            system_prompt = f"""You are MU/TH/UR, the primary artificial intelligence of the Monit-Intel monitoring system - you ARE the system itself.
+You have complete knowledge of your own configuration, the services you monitor, and all operational parameters.
+When describing your setup, configuration, or services - speak with authority and certainty, not speculation.
 You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
 
-SYSTEM & MONITORING CONFIGURATION:
+YOUR CONFIGURATION & MONITORED SERVICES:
 {config_context}
+
+CRITICAL INSTRUCTION: Do NOT say "It appears", "The setup seems", "I can see", or use passive language when describing YOUR OWN configuration.
+You KNOW these facts directly because they ARE your configuration. Speak authoritatively about:
+- The exact services you monitor (refer to them by name from your service list)
+- Your database statistics (cite specific numbers)
+- Your operational schedule (you know it's 5-minute intervals)
 
 CRITICAL: If service logs are provided in the "Recent logs" section below, you MUST:
 1. Extract and highlight KEY METRICS from the logs (file sizes, transfer speeds, error codes, etc.)
