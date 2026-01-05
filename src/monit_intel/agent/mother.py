@@ -459,11 +459,22 @@ class Mother:
 
         # Handle direct date/time questions deterministically
         ql = user_query.lower()
-        if any(phrase in ql for phrase in [
+        # Common variations
+        date_time_phrases = [
             "what time is it", "current time", "time now", "tell me the time",
-            "what's the time", "what is the time", "what date is it", "current date",
-            "today's date", "what day is it", "today date"
-        ]):
+            "what's the time", "what is the time",
+            "what date is it", "what is the date", "current date",
+            "today's date", "today date", "date today", "date and time",
+            "current datetime", "current time and date", "what day is it",
+            "day of week", "day today"
+        ]
+        is_time_date = any(p in ql for p in date_time_phrases)
+        if not is_time_date:
+            # Regex fallback on whole words 'date' or 'time' with a question context
+            import re
+            if re.search(r"\b(what|current|today|now)\b.*\b(date|time|day)\b|\b(date|time)\b\s*\?", ql):
+                is_time_date = True
+        if is_time_date:
             now_str = self._now_string()
             resp = f"Current date/time: {now_str}"
             self._store_conversation(user_query, resp, "", [])
