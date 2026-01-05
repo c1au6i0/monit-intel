@@ -8,7 +8,7 @@ import json
 import platform
 import subprocess
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from langchain_ollama import ChatOllama
 from .graph import build_graph
@@ -87,6 +87,21 @@ class Mother:
         """Return current local date/time with timezone for deterministic answers."""
         now = datetime.now().astimezone()
         return now.strftime("%Y-%m-%d %H:%M:%S %Z%z")
+
+    def _to_local(self, ts: Optional[str]) -> str:
+        """Convert a naive UTC timestamp string from SQLite to local time string with TZ.
+
+        SQLite's CURRENT_TIMESTAMP is UTC. We store naive 'YYYY-MM-DD HH:MM:SS'.
+        """
+        if not ts:
+            return "N/A"
+        try:
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z%z")
+        except Exception:
+            return ts
     
     def _command_exists(self, command: str) -> bool:
         """Check if a command exists in PATH."""
@@ -151,7 +166,8 @@ class Mother:
             context_parts.append(f"\nDatabase & Collection:")
             context_parts.append(f"  - Database: {self.db_path} (SQLite)")
             context_parts.append(f"  - Total snapshots: {total_snapshots}")
-            context_parts.append(f"  - Data range: {min_ts} to {max_ts}")
+            # Show local timezone for readability
+            context_parts.append(f"  - Data range: {self._to_local(min_ts)} to {self._to_local(max_ts)}")
             context_parts.append(f"  - Collection interval: Every 5 minutes (via systemd timer)")
             context_parts.append(f"  - Services monitored: {num_services}")
             context_parts.append(f"  - Service list: {', '.join(services[:10])}")
@@ -210,7 +226,8 @@ class Mother:
         for service_name, status, timestamp in cursor.fetchall():
             services[service_name] = {
                 "status": status,
-                "last_checked": timestamp,
+                # Convert to local display time
+                "last_checked": self._to_local(timestamp),
                 "healthy": status == 0
             }
         
