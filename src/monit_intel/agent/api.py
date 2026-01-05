@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Head
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from .graph import build_graph
 from .mother import Mother
 from .actions import ActionExecutor, ActionType
@@ -94,6 +94,19 @@ class ActionRequest(BaseModel):
     approve: bool = False
 
 
+def _to_local(ts: Optional[str]) -> str:
+    """Convert naive UTC timestamp strings from SQLite to local time with TZ."""
+    if not ts:
+        return "N/A"
+    try:
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z%z")
+    except Exception:
+        return ts
+
+
 @app.get("/")
 def root():
     """Health check endpoint."""
@@ -148,7 +161,7 @@ def get_status(_: str = Depends(verify_auth)):
             services.append(ServiceStatus(
                 name=name,
                 status=status,
-                last_checked=timestamp
+                last_checked=_to_local(timestamp)
             ))
         
         conn.close()
@@ -214,7 +227,7 @@ def get_history(service: str, days: int = 7, _: str = Depends(verify_auth)):
         history = []
         for timestamp, status in cursor.fetchall():
             history.append({
-                "timestamp": timestamp,
+                "timestamp": _to_local(timestamp),
                 "status": status,
                 "healthy": status == 0
             })
