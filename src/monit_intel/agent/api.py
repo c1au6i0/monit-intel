@@ -199,7 +199,7 @@ def analyze(request: AnalysisRequest, _: str = Depends(verify_auth)):
         return AnalysisResponse(
             service=request.service or "all",
             analysis=analysis_text.strip() or "No failures detected or analysis skipped",
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().astimezone().isoformat()
         )
     
     except Exception as e:
@@ -266,7 +266,7 @@ def get_logs(service: str, _: str = Depends(verify_auth)):
         return {
             "service": service,
             "logs": result,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().astimezone().isoformat()
         }
     
     except HTTPException:
@@ -292,7 +292,7 @@ def mother_chat(request: MotherChatRequest, _: str = Depends(verify_auth)):
         return {
             "query": request.query,
             "response": response,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().astimezone().isoformat()
         }
     
     except Exception as e:
@@ -307,7 +307,9 @@ def mother_history(limit: int = 10, _: str = Depends(verify_auth)):
         
         return {
             "count": len(history),
-            "conversations": history
+            "conversations": [
+                {**h, "timestamp": _to_local(h.get("timestamp"))} for h in history
+            ]
         }
     
     except Exception as e:
@@ -568,7 +570,7 @@ async def websocket_chat(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "response",
                             "content": response,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                         
                         # Then send action suggestion for approval
@@ -584,7 +586,7 @@ async def websocket_chat(websocket: WebSocket):
                                 "service": action_suggestion["service"],
                                 "command": suggestion.get("command"),
                                 "description": suggestion.get("description"),
-                                "timestamp": datetime.now().isoformat()
+                                "timestamp": datetime.now().astimezone().isoformat()
                             })
                         except (KeyError, ValueError) as e:
                             print(f"DEBUG: Error converting action type: {e}")
@@ -595,7 +597,7 @@ async def websocket_chat(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "response",
                             "content": response,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                 
                 elif msg_type == "action":
@@ -668,14 +670,14 @@ async def websocket_chat(websocket: WebSocket):
                             "success": True,
                             "exit_code": result.get("exit_code"),
                             "output": result.get("output"),
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                     else:
                         await websocket.send_json({
                             "type": "action_result",
                             "success": False,
                             "error": result.get("reason"),
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                     print(f"DEBUG: Response sent", flush=True)
                 
