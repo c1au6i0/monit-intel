@@ -85,7 +85,28 @@ Agent: "Analyzing logs... The backup process timed out due to disk space..."
 
 ### Web Chat UI (Easiest)
 
-After running `pixi run agent`, open `http://localhost:8000/chat` and login.
+**Start the agent first:**
+```bash
+MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
+```
+
+**Open in browser:**
+```
+http://localhost:8000/chat
+```
+
+**Login with your chat credentials** (the ones you configured in setup step 3):
+- Username: your_username
+- Password: your_password
+
+**Features:**
+- Real-time bidirectional WebSocket chat
+- Login with your configured chat credentials
+- 30-minute session timeout with auto-logout
+- Logout button in top-right corner
+- Alien aesthetic (phosphor green, scanlines)
+- Historical trend analysis (CPU, memory, failures)
+- **User tracking:** Mother knows who you are and tracks your conversations
 
 **Example queries:**
 - "What's the status of all services?"
@@ -110,11 +131,51 @@ curl -X POST http://localhost:8000/mother/chat \
   -u your_username:your_password \
   -d '{"query": "What about CPU usage?"}'
 
-# Get history
-curl -u your_username:your_password http://localhost:8000/mother/history?limit=10
+# View conversation history (all conversations)
+curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10" | jq
 
-# Check health
-curl -u your_username:your_password http://localhost:8000/health
+# View only YOUR conversation history
+curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10&filter_user=true" | jq
+```
+
+**Privacy Note:** Mother tracks which user asked which question. Use `filter_user=true` to see only your conversations.
+
+**Available Endpoints:**
+| Method | Endpoint | Purpose | Auth |
+|--------|----------|---------|------|
+| `GET` | `/health` | Agent status | Basic |
+| `GET` | `/status` | All services | Basic |
+| `POST` | `/mother/chat` | Chat query (tracks username) | Basic |
+| `GET` | `/mother/history` | Chat history (optional `filter_user=true`) | Basic |
+| `POST` | `/mother/actions/suggest` | Preview action | Basic |
+| `POST` | `/mother/actions/execute` | Execute action | Basic |
+| `GET` | `/mother/actions/audit` | Action audit log | Basic |
+
+### Mother AI System Awareness
+
+**Mother automatically includes system & monitoring context in every response:**
+
+Mother has self-awareness of:
+- ✅ **Current date/time** - Knows today's date and the exact time queries are made
+- ✅ **Ingest configuration** - Knows data is ingested every 5 minutes via systemd timer
+- ✅ **Database statistics** - Reports total snapshots collected and date range
+- ✅ **Monitored services** - Lists all 30+ services being tracked
+- ✅ **System information** - Knows OS, distro, Python version, package manager
+- ✅ **Agent configuration** - Aware of port 8000, WebSocket endpoint, LLM model
+
+**Example - Mother answers config questions:**
+```bash
+You:  "What is the current date?"
+Bot:  "The current date is 2026-01-05"
+
+You:  "How often does the ingest run?"
+Bot:  "The ingest runs every 5 minutes via systemd timer"
+
+You:  "How many services are being monitored?"
+Bot:  "The system is currently monitoring 30 unique services with 180 snapshots collected"
+
+You:  "What's your monitoring setup?"
+Bot:  "[Provides complete technical summary of configuration]"
 ```
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for complete REST API reference.

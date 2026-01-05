@@ -24,6 +24,43 @@ CREATE TABLE chat_credentials (
 );
 ```
 
+### Conversation History & User Tracking
+
+Mother maintains a conversation history that includes user identification:
+
+- **Storage:** SQLite `monit_history.db`, `conversations` table
+- **User tracking:** Username is stored with each conversation
+- **Privacy:** Each user can see all conversation history (filtering available via API)
+
+**Database Schema:**
+```sql
+CREATE TABLE conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    username TEXT,                     -- Username of person asking the question
+    user_query TEXT NOT NULL,
+    agent_response TEXT NOT NULL,
+    service_context TEXT,
+    logs_provided TEXT
+);
+```
+
+**Privacy Considerations:**
+- Mother knows WHO asked WHAT question and WHEN
+- Conversation history can be filtered by username via API parameter `filter_user=true`
+- All authenticated users can access conversation history by default
+- To restrict access, implement application-level access controls
+- Sensitive queries are logged and associated with the authenticated user
+
+**View your conversation history:**
+```bash
+# Via REST API (filter to your conversations only)
+curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10&filter_user=true"
+
+# View all conversations (requires authentication)
+curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10"
+```
+
 **Verify passwords are hashed:**
 ```bash
 pixi run python << 'EOF'
