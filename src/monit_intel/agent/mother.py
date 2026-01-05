@@ -8,7 +8,7 @@ import json
 import platform
 import subprocess
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from langchain_ollama import ChatOllama
 from .graph import build_graph
@@ -82,6 +82,26 @@ class Mother:
             info["update_command"] = "Check your OS documentation"
         
         return info
+
+    def _now_string(self) -> str:
+        """Return current local date/time with timezone for deterministic answers."""
+        now = datetime.now().astimezone()
+        return now.strftime("%Y-%m-%d %H:%M:%S %Z%z")
+
+    def _to_local(self, ts: Optional[str]) -> str:
+        """Convert a naive UTC timestamp string from SQLite to local time string with TZ.
+
+        SQLite's CURRENT_TIMESTAMP is UTC. We store naive 'YYYY-MM-DD HH:MM:SS'.
+        """
+        if not ts:
+            return "N/A"
+        try:
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z%z")
+        except Exception:
+            return ts
     
     def _command_exists(self, command: str) -> bool:
         """Check if a command exists in PATH."""
@@ -127,7 +147,7 @@ class Mother:
         context_parts = []
         
         # Current date/time
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        current_time = self._now_string()
         context_parts.append(f"Current date/time: {current_time}")
         
         # MONITORING SYSTEM - Lead with what we're monitoring
@@ -159,7 +179,8 @@ class Mother:
             context_parts.append(f"\nDatabase & Collection:")
             context_parts.append(f"  - Database: {self.db_path} (SQLite)")
             context_parts.append(f"  - Total snapshots: {total_snapshots}")
-            context_parts.append(f"  - Data range: {min_ts} to {max_ts}")
+            # Show local timezone for readability
+            context_parts.append(f"  - Data range: {self._to_local(min_ts)} to {self._to_local(max_ts)}")
             context_parts.append(f"  - Collection interval: Every 5 minutes (via systemd timer)")
             context_parts.append(f"  - Services monitored: {num_services}")
             context_parts.append(f"  - Service list: {', '.join(services[:10])}")
@@ -218,7 +239,8 @@ class Mother:
         for service_name, status, timestamp in cursor.fetchall():
             services[service_name] = {
                 "status": status,
-                "last_checked": timestamp,
+                # Convert to local display time
+                "last_checked": self._to_local(timestamp),
                 "healthy": status == 0
             }
         
@@ -448,6 +470,50 @@ class Mother:
         if easter_egg:
             self._store_conversation(user_query, easter_egg, "", [], username)
             return easter_egg
+
+        # Handle direct date/time questions deterministically
+        ql = user_query.lower()
+        # Common variations
+        date_time_phrases = [
+            "what time is it", "current time", "time now", "tell me the time",
+            "what's the time", "what is the time",
+            "what date is it", "what is the date", "current date",
+            "today's date", "today date", "date today", "date and time",
+            "current datetime", "current time and date", "what day is it",
+            "day of week", "day today"
+        ]
+        is_time_date = any(p in ql for p in date_time_phrases)
+        if not is_time_date:
+            # Regex fallback on whole words 'date' or 'time' with a question context
+            import re
+            if re.search(r"\b(what|current|today|now)\b.*\b(date|time|day)\b|\b(date|time)\b\s*\?", ql):
+                is_time_date = True
+        if is_time_date:
+            now_str = self._now_string()
+            resp = f"Current date/time: {now_str}"
+            self._store_conversation(user_query, resp, "", [])
+            return resp
+
+        # Handle data range questions deterministically (global DB range)
+        if any(phrase in ql for phrase in [
+            "since when do you have data", "data since", "from when is your data",
+            "earliest data", "start date", "data range", "how far back"
+        ]):
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT MIN(timestamp), MAX(timestamp), COUNT(*) FROM snapshots")
+                row = cur.fetchone() or (None, None, 0)
+                conn.close()
+                min_ts, max_ts, count = row
+                if count and min_ts and max_ts:
+                    resp = f"I have {count} snapshots from {min_ts} to {max_ts}."
+                else:
+                    resp = "No snapshot data available yet."
+            except Exception as e:
+                resp = f"Unable to query data range: {e}"
+            self._store_conversation(user_query, resp, "", [])
+            return resp
         
         # Check if user is asking about monitoring capabilities
         query_lower = user_query.lower()

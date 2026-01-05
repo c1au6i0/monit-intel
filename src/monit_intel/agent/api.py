@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Head
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from .graph import build_graph
 from .mother import Mother
 from .actions import ActionExecutor, ActionType
@@ -94,6 +94,19 @@ class ActionRequest(BaseModel):
     approve: bool = False
 
 
+def _to_local(ts: Optional[str]) -> str:
+    """Convert naive UTC timestamp strings from SQLite to local time with TZ."""
+    if not ts:
+        return "N/A"
+    try:
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z%z")
+    except Exception:
+        return ts
+
+
 @app.get("/")
 def root():
     """Health check endpoint."""
@@ -129,8 +142,8 @@ def health(_: str = Depends(verify_auth)):
 
 
 @app.get("/status", response_model=list[ServiceStatus])
-def get_status():
-    """Get current status of all monitored services."""
+def get_status(_: str = Depends(verify_auth)):
+    """Get current status of all monitored services. Requires authentication."""
     try:
         conn = sqlite3.connect("monit_history.db")
         cursor = conn.cursor()
@@ -148,7 +161,7 @@ def get_status():
             services.append(ServiceStatus(
                 name=name,
                 status=status,
-                last_checked=timestamp
+                last_checked=_to_local(timestamp)
             ))
         
         conn.close()
@@ -159,7 +172,7 @@ def get_status():
 
 
 @app.post("/analyze", response_model=AnalysisResponse)
-def analyze(request: AnalysisRequest):
+def analyze(request: AnalysisRequest, _: str = Depends(verify_auth)):
     """
     Trigger analysis of a service or all current failures.
     If service is None, analyzes all current failures.
@@ -186,7 +199,7 @@ def analyze(request: AnalysisRequest):
         return AnalysisResponse(
             service=request.service or "all",
             analysis=analysis_text.strip() or "No failures detected or analysis skipped",
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().astimezone().isoformat()
         )
     
     except Exception as e:
@@ -194,7 +207,7 @@ def analyze(request: AnalysisRequest):
 
 
 @app.get("/history")
-def get_history(service: str, days: int = 7):
+def get_history(service: str, days: int = 7, _: str = Depends(verify_auth)):
     """
     Get failure history for a service over the last N days.
     """
@@ -214,7 +227,7 @@ def get_history(service: str, days: int = 7):
         history = []
         for timestamp, status in cursor.fetchall():
             history.append({
-                "timestamp": timestamp,
+                "timestamp": _to_local(timestamp),
                 "status": status,
                 "healthy": status == 0
             })
@@ -242,8 +255,8 @@ def get_history(service: str, days: int = 7):
 
 
 @app.get("/logs/{service}")
-def get_logs(service: str):
-    """Get latest logs for a specific service."""
+def get_logs(service: str, _: str = Depends(verify_auth)):
+    """Get latest logs for a specific service. Requires authentication."""
     try:
         result = get_service_logs(service)
         
@@ -253,7 +266,7 @@ def get_logs(service: str):
         return {
             "service": service,
             "logs": result,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().astimezone().isoformat()
         }
     
     except HTTPException:
@@ -271,7 +284,7 @@ def mother_chat(request: MotherChatRequest, username: str = Depends(verify_auth)
     """
     Query the agent using natural language via Mother chat interface.
     Automatically injects service context and failure history.
-    Requires HTTP Basic Authentication (same as Monit credentials).
+    Requires HTTP Basic Authentication (chat credentials).
     """
     try:
         response = mother.query_agent(request.query, username=username)
@@ -279,7 +292,7 @@ def mother_chat(request: MotherChatRequest, username: str = Depends(verify_auth)
         return {
             "query": request.query,
             "response": response,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().astimezone().isoformat()
         }
     
     except Exception as e:
@@ -304,7 +317,9 @@ def mother_history(limit: int = 10, username: str = Depends(verify_auth), filter
         
         return {
             "count": len(history),
-            "conversations": history
+            "conversations": [
+                {**h, "timestamp": _to_local(h.get("timestamp"))} for h in history
+            ]
         }
     
     except Exception as e:
@@ -567,7 +582,7 @@ async def websocket_chat(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "response",
                             "content": response,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                         
                         # Then send action suggestion for approval
@@ -583,7 +598,7 @@ async def websocket_chat(websocket: WebSocket):
                                 "service": action_suggestion["service"],
                                 "command": suggestion.get("command"),
                                 "description": suggestion.get("description"),
-                                "timestamp": datetime.now().isoformat()
+                                "timestamp": datetime.now().astimezone().isoformat()
                             })
                         except (KeyError, ValueError) as e:
                             print(f"DEBUG: Error converting action type: {e}")
@@ -594,7 +609,7 @@ async def websocket_chat(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "response",
                             "content": response,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                 
                 elif msg_type == "action":
@@ -667,14 +682,14 @@ async def websocket_chat(websocket: WebSocket):
                             "success": True,
                             "exit_code": result.get("exit_code"),
                             "output": result.get("output"),
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                     else:
                         await websocket.send_json({
                             "type": "action_result",
                             "success": False,
                             "error": result.get("reason"),
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.now().astimezone().isoformat()
                         })
                     print(f"DEBUG: Response sent", flush=True)
                 

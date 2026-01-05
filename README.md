@@ -1,194 +1,89 @@
-# 🤖 Monit-Intel Agent
+# Monit-Intel
 
-A **LangGraph + Llama 3.1** powered agent that monitors server health via Monit, analyzes logs intelligently, and performs automated root-cause analysis. Features an interactive MU/TH/UR chat interface for querying system health and executing safe remediation actions.
+**AI-powered system monitoring with LLM analysis of failures.** Query your system health via interactive chat, get root cause analysis, and receive remediation advice—all in an 8B LLM running locally on GPU.
 
-**Quick links:**
-- 📖 [Install & Setup](#-install--setup)
-- 🚀 [Quick Start](#-quick-start)
-- 💬 [Usage](#-usage)
-- 🏗️ [Architecture](#-architecture)
-- ⚙️ [Configuration](#-configuration)
+## Quick Start (5 minutes)
 
----
+### 1. Prerequisites
 
-## 📖 Install & Setup
+- **Monit** running on localhost:2812 with admin credentials
+- **Ollama** with Llama 3.1:8b (`ollama run llama3.1:8b`)
+- **Python 3.11+** via Pixi (see [Environment Setup](#environment-setup))
+- **NVIDIA GPU** (optional, ~7GB VRAM for Llama 3.1)
 
-### Prerequisites
-
-- **Pixi** (lightweight Conda alternative) - [Install here](https://pixi.sh)
-- **Monit** running on `localhost:2812` with XML API enabled
-- **Ollama** running Llama 3.1:8b on GPU (RTX 4000 or similar)
-- **Linux system** (tested on Ubuntu 24.04)
-
-### Step 1: Clone & Install Dependencies
+### 2. Setup
 
 ```bash
-cd monit-intel
-pixi install
-```
-
-### Step 2: Configure Credentials
-
-**Option A: Development (Local .env - Easy)**
-```bash
-cat > .env << EOF
-MONIT_USER=admin
-MONIT_PASS=your_monit_password
-MONIT_URL=http://localhost:2812/_status?format=xml
-EOF
-```
-
-**Option B: Production (Systemd - Secure & Recommended)**
-
-Credentials stored securely in systemd drop-in files (not in git, not in project folder):
-
-```bash
-# Create environment files
-sudo mkdir -p /etc/systemd/system/monit-intel-{agent,ingest}.service.d/
-
-# Agent environment
-sudo tee /etc/systemd/system/monit-intel-agent.service.d/env.conf > /dev/null << EOF
-[Service]
-Environment="MONIT_USER=admin"
-Environment="MONIT_PASS=your_monit_password"
-Environment="MONIT_URL=http://localhost:2812/_status?format=xml"
-EOF
-
-# Ingest environment
-sudo tee /etc/systemd/system/monit-intel-ingest.service.d/env.conf > /dev/null << EOF
-[Service]
-Environment="MONIT_USER=admin"
-Environment="MONIT_PASS=your_monit_password"
-Environment="MONIT_URL=http://localhost:2812/_status?format=xml"
-EOF
-
-# Lock down permissions
-sudo chmod 600 /etc/systemd/system/monit-intel-*/service.d/env.conf
-
-# Reload systemd
-sudo systemctl daemon-reload
-```
-
-**Benefits of Option B:**
-- ✅ Credentials NOT in git repo
-- ✅ Credentials NOT in project folder
-- ✅ Only readable by root (chmod 600)
-- ✅ Easy rotation without code redeploy
-
-### Step 3: Set Up Chat Credentials
-
-Chat authentication is **separate from Monit credentials**. Initialize the chat UI login credentials:
-
-```bash
+# Clone and enter directory
+git clone https://github.com/yourusername/monit-intel.git
 cd monit-intel
 
-# Set your chat UI username and password
-PYTHONPATH=./src pixi run python -m monit_intel.chat_auth your_username your_secure_password
+# Set credentials
+export MONIT_USER=admin
+export MONIT_PASS=your_monit_password
 
-# Check status
-PYTHONPATH=./src pixi run python << 'EOF'
-from monit_intel.chat_auth import get_chat_credentials_status
-status = get_chat_credentials_status()
-print(f"Chat credentials configured: {status['configured']}")
-print(f"Credentials count: {status['count']}")
-EOF
+# Create chat login credentials
+pixi run python -m monit_intel.chat_auth your_username your_password
 ```
 
-**Note:** You can have different passwords for:
-- **Monit API** (in systemd env files or .env)
-- **Chat UI** (stored securely in SQLite with password hashing)
-
-### Step 4: Verify Setup
+### 3. Start the Agent
 
 ```bash
-# Test Monit connection (using Monit credentials from systemd env)
-curl -u $(echo $MONIT_USER:$MONIT_PASS) http://localhost:2812/_status?format=xml | head -20
+# Development (runs agent + API)
+pixi run agent
 
-# Test Ollama (should return model info)
-curl http://localhost:11434/api/tags | jq .
-
-# Test database (should show >0 snapshots)
-PYTHONPATH=./src pixi run python << 'EOF'
-import sqlite3
-conn = sqlite3.connect("monit_history.db")
-cursor = conn.cursor()
-cursor.execute("SELECT COUNT(*) FROM snapshots")
-print(f"✓ Database ready: {cursor.fetchone()[0]} snapshots")
-cursor.execute("SELECT COUNT(*) FROM chat_credentials")
-print(f"✓ Chat credentials: {cursor.fetchone()[0]} user(s) configured")
-conn.close()
-EOF
-```
-
----
-
-## 🚀 Quick Start
-
-### Start the Services (Development)
-
-**Terminal 1: Start the agent with API**
-```bash
-cd monit-intel
-
-# Use your Monit credentials from systemd env or .env
-MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
-```
-
-You should see:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000
-INFO:     Application startup complete
-```
-
-**Terminal 2: Start the ingestion (optional - runs automatically every 5 min in production)**
-```bash
-cd monit-intel
-pixi run ingest
-```
-
-### Access the Chat UI
-
-Open your browser:
-```
-http://localhost:8000/chat
-```
-
-Login with the **chat credentials** you set up in Step 3:
-- **Username:** Your chosen username
-- **Password:** Your chosen password
-
-**Note:** These are **different from your Monit service password**. If you set them up as:
-```bash
-pixi run python -m monit_intel.chat_auth admin your_secure_password
-```
-
-Then login with:
-- Username: `admin`
-- Password: `your_secure_password`
-
-### Start the Services (Production with Systemd)
-
-```bash
-# Install systemd services (one-time setup)
+# Production (install systemd services)
 sudo bash ./config/systemd/install-services.sh
-
-# Start agent
 sudo systemctl start monit-intel-agent.service
-sudo systemctl status monit-intel-agent.service
-
-# Start ingest timer
 sudo systemctl start monit-intel-ingest.timer
-systemctl list-timers monit-intel-ingest.timer
-
-# View logs
-journalctl -u monit-intel-agent.service -f
 ```
 
----
+### 4. Access the Chat UI
 
-## 💬 Usage
+Open browser: `http://localhost:8000/chat`
 
-### 1. Web Chat UI (Interactive & Easiest)
+Login with credentials from step 2, then chat:
+```
+You:   "What's the overall system health?"
+Agent: "All services are healthy. Docker at 0.5% CPU, nordvpn at 0.2%..."
+
+You:   "Why is system_backup failing?"
+Agent: "Analyzing logs... The backup process timed out due to disk space..."
+```
+
+## How It Works
+
+**Monit-Intel** runs two parallel workflows:
+
+1. **Background Agent** (every 5 minutes via systemd timer)
+   - Polls Monit service status (30+ services)
+   - Detects new failures using LangGraph DAG
+   - Stores snapshots in SQLite database (~20-25MB for 30 days)
+   - Analyzes root causes with Llama 3.1 LLM
+
+2. **Interactive Mother Chat** (on-demand via API/UI)
+   - WebSocket interface for real-time conversation
+   - Injects 30-day historical context and trends
+   - Provides remediation advice (analysis only, no auto-execution)
+   - Session-based auth with 30-minute timeout
+
+**Key Detail:** When you ask "hello" or "how are you?" Mother responds naturally without dumping configuration. When you ask "why is service X failing?" Mother analyzes 30 days of failure history and provides root cause analysis.
+
+## Features
+
+| Feature | Details |
+|---------|---------|
+| **Real-time Chat UI** | WebSocket-based with responsive phosphor-green terminal theme |
+| **Historical Analysis** | 30-day CPU/memory/failure trends with automated rollup |
+| **Smart Log Aggregation** | Extracts metrics from system logs, journalctl, and Docker stats |
+| **OS-Aware Context** | Detects Ubuntu/Fedora/Arch and provides distro-specific advice |
+| **Safe Design** | Read-only analysis with suggested commands (no auto-execution) |
+| **Conversation Memory** | Full chat history stored and injected into LLM context |
+| **Production Ready** | Systemd services, logging, and audit trails included |
+
+## Usage
+
+### Web Chat UI (Easiest)
 
 **Start the agent first:**
 ```bash
@@ -214,65 +109,27 @@ http://localhost:8000/chat
 - **User tracking:** Mother knows who you are and tracks your conversations
 
 **Example queries:**
-```
-You:  "What's the overall system health?"
-Bot:  "All services are healthy. Docker at 0.5% CPU, nordvpn at 0.2%..."
+- "What's the status of all services?"
+- "Why is docker failing so much?"
+- "Show me CPU usage trends"
+- "What happened to the network yesterday?"
+- "How do I restart the system_backup service?"
 
-You:  "Why is system_backup failing?"
-Bot:  "Analyzing logs... The backup process timed out due to disk space..."
+### Interactive CLI
 
-You:  "What about CPU usage in the last 30 days?"
-Bot:  "CPU trends are stable. Nordvpn averages 0.2%, docker 0.0%..."
-```
-
-### 2. Interactive CLI Chat
-
-**Start the interactive CLI:**
 ```bash
-cd monit-intel
-PYTHONPATH=./src pixi run hello-mother
+pixi run hello-mother
 ```
 
-**Usage:**
+Type queries interactively with multi-line input, `exit` to quit.
+
+### REST API
+
 ```bash
-> What is the current system status?
-Agent: All services are currently healthy...
-
-> Why is nordvpn_reconnect failing?
-Agent: The service appears to have connection issues...
-
-> Show me the failure history
-Agent: Based on the past 30 days...
-
-> exit
-Goodbye!
-```
-
-**This CLI:**
-- Connects directly to the agent
-- Maintains conversation history
-- Auto-detects OS for OS-specific commands
-- Supports multi-line queries
-- No browser needed
-
-### 3. REST API (Programmatic)
-
-**Test the API (use your configured chat credentials):**
-```bash
-# Check agent health
-curl -u your_username:your_password http://localhost:8000/health
-# → {"status": "healthy", "database": "connected", "snapshots": 150}
-
-# Get all service statuses
-curl -u your_username:your_password http://localhost:8000/status | jq
-# → [{"service": "docker", "status": 0}, ...]
-
-# Query via REST endpoint
+# Query (use your chat credentials)
 curl -X POST http://localhost:8000/mother/chat \
   -u your_username:your_password \
-  -H "Content-Type: application/json" \
   -d '{"query": "What about CPU usage?"}'
-# → {"response": "CPU usage is stable...", "timestamp": "..."}
 
 # View conversation history (all conversations)
 curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10" | jq
@@ -321,204 +178,133 @@ You:  "What's your monitoring setup?"
 Bot:  "[Provides complete technical summary of configuration]"
 ```
 
-This context injection allows Mother to provide informed, accurate responses about system configuration without requiring manual updates.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for complete REST API reference.
 
-### 4. Manual Background Monitoring
+## Configuration
 
-**One-time ingestion run:**
-```bash
-pixi run ingest
-```
-
-**Continuous daemon (polls every 5 min):**
-```bash
-MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent &
-```
-
-**View console output:**
-```bash
-# Logs appear as:
-[2026-01-03 20:53:38] detect_failures: Found 1 NEW failure
-[2026-01-03 20:53:40] fetch_logs: Retrieving logs for system_backup
-[2026-01-03 20:53:45] analyze_with_llm: Llama 3.1 analysis complete
-  → Root cause: Disk space exhausted (/data/tank at 98%)
-  → Recommendation: Expand storage or delete old backups
-```
-
-### Restart the Agent
-
-**Development:**
-```bash
-# Kill old process
-pkill -f "pixi run agent"
-
-# Start new one
-MONIT_USER=admin MONIT_PASS=your_monit_password pixi run agent
-```
-
-**Production (Systemd):**
-```bash
-sudo systemctl restart monit-intel-agent.service
-sudo systemctl status monit-intel-agent.service
-```
-
-### Stop the Agent
-
-**Development:**
-```bash
-pkill -f "pixi run agent"
-```
-
-**Production:**
-```bash
-sudo systemctl stop monit-intel-agent.service
-sudo systemctl disable monit-intel-agent.service  # Don't auto-start
-```
-
-
-
-## 🏗️ Architecture
-
-**Monit-Intel** uses a dual-workflow architecture:
-
-1. **Background Agent** - Runs every 5 minutes, detects failures, and analyzes root causes using LangGraph + Llama 3.1
-2. **Interactive Chat** - User-facing WebSocket interface for querying system health with 30-day historical context
-
-**Quick Example:**
-```bash
-# Query via chat UI
-User: "What about CPU usage in the last 30 days?"
-Mother: "Based on historical trends, docker averages 0.0% CPU, 
-         nordvpn 0.2%. All services show minimal consumption..."
-
-# Or via REST API
-curl -X POST http://localhost:8000/mother/chat \
-  -u your_username:your_password \
-  -d '{"query": "Why is docker failing?"}'
-```
-
-**For detailed architecture information** including component design, data flow, workflow nodes, database schema, WebSocket protocol, and performance characteristics, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-Key highlights:
-- **3-node LangGraph DAG** for failure detection and analysis
-- **30-day rolling snapshots** with CPU/memory/failure metrics
-- **OS-aware context injection** (Ubuntu = apt, Fedora = dnf, etc.)
-- **Per-service log limits** (50-150 lines) to optimize GPU usage
-- **Smart is_critical flag** to skip re-analyzing unchanged failures
-- **SQLite persistence** (~20-25MB for 30 days of history)
-
-## 🌐 REST API
-
-Once the agent is running (via systemd or manually with `--api`), the REST API is available on `localhost:8000`.
-
-### Core Endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/health` | Check agent status & database connectivity |
-| `GET` | `/status` | List all services and their status |
-| `POST` | `/mother/chat` | Query agent about system health |
-| `GET` | `/mother/history` | View conversation history |
-
-**Quick Examples:**
+### Environment Variables
 
 ```bash
-# Check agent health
-curl -u your_username:your_password http://localhost:8000/health
-
-# Chat with the agent
-curl -X POST http://localhost:8000/mother/chat \
-  -u your_username:your_password \
-  -d '{"query": "Why is docker failing?"}'
-
-# View all services
-curl -u your_username:your_password http://localhost:8000/status | jq
+MONIT_USER=admin              # Monit service username
+MONIT_PASS=password           # Monit service password
+MONIT_URL=localhost:2812      # Monit server (optional)
+OLLAMA_HOST=localhost:11434   # Ollama server (optional)
 ```
 
-For all API endpoints and examples, see [ARCHITECTURE.md → WebSocket Protocol](docs/ARCHITECTURE.md#websocket-protocol).
+### Customization
 
-## �️ Mother: AI Analysis & Recommendations
+| Setting | Location | Default |
+|---------|----------|---------|
+| Monitor interval | `src/monit_intel/main.py` | 5 minutes |
+| Database retention | `src/monit_intel/ingest.py` | 30 days |
+| Session timeout | `src/monit_intel/agent/static/chat.html` | 30 minutes |
+| LLM model | `src/monit_intel/agent/mother.py` | llama3.1:8b |
 
-**Mother** (MU/TH/UR) is the conversational AI interface to the agent. It automatically:
+## Documentation
 
-1. **Gathers context** from 30 days of historical snapshots
-2. **Detects your OS** (Ubuntu, Fedora, Arch, etc.)
-3. **Analyzes root causes** of failures using LLM analysis
-4. **Provides remediation advice** and troubleshooting steps
-5. **Streams responses** via WebSocket in real-time
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data flow, workflows, database schema, API reference |
+| [SECURITY.md](docs/SECURITY.md) | Authentication, password storage, TLS, threat model |
+| [STRUCTURE.md](docs/STRUCTURE.md) | Project layout, module organization, imports |
 
-**⚠️ Read-Only by Design:** Mother analyzes and advises only. All system commands are provided as suggestions for you to execute manually - never executed automatically. This ensures safety and keeps you in control.
+## Project Structure
 
-**Examples:**
 ```
-User: "Why is nordvpn failing?"
-Mother: "The nordvpn service crashed due to authentication timeout. 
-         You can restart it with: sudo systemctl restart nordvpnd"
-
-User: "What about CPU usage?"
-Mother: "CPU is stable at 0.1% average. nordvpn uses 0.2% max, 
-         tailscaled uses 0.1%. All normal."
-
-User: "How do I fix the alpha failures?"
-Mother: "The alpha service failed 5 times in 30 days due to timeout.
-         Try: sudo systemctl restart alpha
-         If that doesn't work, check logs with: journalctl -u alpha -n 50"
-```
-
-For detailed Mother architecture, see [ARCHITECTURE.md → Two Parallel Systems](docs/ARCHITECTURE.md#two-parallel-systems).
-
-## ⚙️ Configuration
-
-### Quick Customization
-
-**Adjust monitoring interval:**
-```python
-# Edit: src/monit_intel/main.py
-MONITOR_INTERVAL = 300  # 5 minutes (in seconds)
-```
-
-**Customize session timeout:**
-```javascript
-// Edit: src/monit_intel/agent/static/chat.html
-const SESSION_TIMEOUT = 1800000; // 30 minutes (milliseconds)
+monit-intel/
+├── src/monit_intel/
+│   ├── main.py              # Background agent daemon
+│   ├── ingest.py            # Data ingestion (runs every 5 min)
+│   ├── hello_mother.py      # CLI chat interface
+│   ├── chat_auth.py         # Session authentication
+│   ├── agent/
+│   │   ├── graph.py         # LangGraph DAG workflow
+│   │   ├── mother.py        # Chat interface + system context
+│   │   ├── api.py           # FastAPI server
+│   │   ├── nodes.py         # Workflow nodes (detect/fetch/analyze)
+│   │   ├── state.py         # Workflow state management
+│   │   ├── actions.py       # Safe command executor
+│   │   └── static/          # Web UI (chat.html)
+│   └── tools/
+│       └── log_reader.py    # Service log aggregator
+├── docs/                    # Detailed documentation
+├── tests/                   # Test suite
+├── scripts/                 # Helper scripts
+├── config/systemd/          # Production systemd services
+├── pixi.toml                # Environment definition (PRIMARY)
+├── pyproject.toml           # Package metadata
+└── monit_history.db         # SQLite database (auto-created)
 ```
 
-**Change database retention:**
-```python
-# Edit: src/monit_intel/ingest.py
-RETENTION_DAYS = 30  # Keep 30 days of snapshots
+**Note:** Use `pixi run` for all Python execution. See [Environment Setup](#environment-setup).
+
+## Development
+
+### Run Tests
+
+```bash
+pixi run pytest tests/
 ```
 
+### Code Quality
 
+```bash
+pixi run black src/      # Format code
+pixi run ruff check src/ # Lint
+pixi run mypy src/       # Type check
+```
 
+### Environment Setup
 
----
+**Pixi is the primary environment manager.** All dependencies, channels, and tasks are defined in `pixi.toml`.
 
-## � Service Log Accessibility
+Install Pixi: https://pixi.sh
 
-### 7 Services with Direct Log Access
+Then:
+```bash
+pixi install           # Install dependencies
+pixi run agent         # Run agent via defined task
+pixi run hello-mother  # Run CLI
+pixi run pytest        # Run tests
+```
 
-Mother extracts and quotes specific metrics from logs:
+Never use `pip` directly or standard `python` commands—always use `pixi run`.
 
-- **system_backup** - File sizes, transfer speeds, compression ratios
-- **nordvpn_connected** - VPN server connections and failures
-- **nordvpnd** - Service status via journalctl
-- **tailscaled** - DERP node info via journalctl
-- **network_resurrect** - Network restart logs
-- **sanoid_errors** - ZFS snapshot activity via journalctl
-- **zfs-zed** - ZFS events via journalctl
+## Troubleshooting
 
-### 8 Docker Services (Database Only)
+| Problem | Solution |
+|---------|----------|
+| Agent won't start | Check MONIT_USER/MONIT_PASS, verify Monit at localhost:2812, check Ollama on 11434 |
+| Chat UI won't load | Ensure `pixi run agent` is running, check http://localhost:8000 |
+| Slow responses | Llama 3.1 inference = 2-5 sec on RTX 4000, 10-20 sec on CPU |
+| Database locked | `rm monit_history.db` (auto-recreates on next run) |
+| Service logs missing | Add entry to [src/monit_intel/tools/log_reader.py](src/monit_intel/tools/log_reader.py) |
 
-Logs require sudo access. Mother provides database metrics instead:
+### Ingest service keeps restarting
 
-- immich_server_running, immich_ml_running, immich_pg_running, immich_redis_running
-- jellyfin_running, jellyfin_http
-- miniflux_running, postgres_running
+If `monit-intel-ingest.service` fails with environment or path errors, reinstall the systemd units from this repo (they set `PYTHONPATH` and correct `ExecStart`):
 
-Mother explains this limitation gracefully in responses.
+```bash
+sudo cp config/systemd/monit-intel-ingest.service /etc/systemd/system/
+sudo cp config/systemd/monit-intel-ingest.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now monit-intel-ingest.timer
+sudo systemctl restart monit-intel-ingest.service
+systemctl status monit-intel-ingest.service --no-pager
+journalctl -u monit-intel-ingest.service -n 50 --no-pager
+```
 
-### 15+ Other Services (Journalctl Fallback)
+Notes:
+- `EnvironmentFile=-/home/heverz/.env` is optional; missing file will not break the service.
+- `ExecStart` runs `pixi run python -m monit_intel.ingest` and `PYTHONPATH` is set to `src`.
+- Do not place `ProtectHome`/`ReadWritePaths` in the `[Install]` section; they belong in `[Service]` (already correct in this repo).
 
-Automatically queried from systemd journal with smart unit name matching. Mother reports status, CPU, memory, and failure history.
+## License
 
+MIT
+
+## Support
+
+- **System architecture & design:** See [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Security & authentication:** See [SECURITY.md](docs/SECURITY.md)
+- **Module structure & imports:** See [STRUCTURE.md](docs/STRUCTURE.md)
