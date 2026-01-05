@@ -414,16 +414,45 @@ SYSTEM INFORMATION:
 - Hostname: beta-boy
 - Python: 3.11
 
+SYSTEM & MONITORING CONFIGURATION:
+Current date/time: 2026-01-05 04:13:48
+Database: 180 snapshots collected, 30 services monitored
+Ingest: Every 5 minutes via systemd timer
+Agent: Running on port 8000
+
 GUIDELINES:
-1. All package installs use: sudo apt install <package>
-2. All service management uses: systemctl {start|stop|restart|status}
-3. All service logs use: journalctl -u <service>.service
-4. Reference actual data from service histories
-5. Provide OS-specific commands only
-6. Be concise and actionable
+1. You know the current date from configuration context
+2. Reference actual snapshot counts when discussing data
+3. Explain ingest schedule (5-minute intervals) when asked  
+4. All package installs use: sudo apt install <package>
+5. All service management uses: systemctl {start|stop|restart|status}
+6. All service logs use: journalctl -u <service>.service
+7. Reference actual data from service histories
+8. Provide OS-specific commands only
+9. Be concise and actionable
 ```
 
-**Result:** LLM naturally provides correct commands without manual hints
+**Result:** Mother is self-aware and provides informed responses with actual system knowledge.
+
+### Configuration Context Features (NEW)
+
+Mother automatically includes in every query:
+- ✅ Current date/time
+- ✅ Total snapshots collected & date range
+- ✅ Number of services being monitored
+- ✅ Ingest schedule (every 5 minutes)
+- ✅ Database location
+- ✅ Agent configuration (port, LLM model)
+- ✅ System info (OS, distro, hostname, package manager)
+
+Implementation in `src/monit_intel/agent/mother.py`:
+```python
+def get_config_context(self) -> str:
+    """Get configuration context about the system, ingest, and Monit setup."""
+    # Returns formatted string with all system configuration
+    # Automatically called before each LLM query
+    # Appended to system prompt for context injection
+```
 
 ---
 

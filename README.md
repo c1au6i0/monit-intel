@@ -288,6 +288,35 @@ curl -u your_username:your_password "http://localhost:8000/mother/history?limit=
 | `POST` | `/mother/actions/execute` | Execute action | Basic |
 | `GET` | `/mother/actions/audit` | Action audit log | Basic |
 
+### Mother AI System Awareness
+
+**Mother automatically includes system & monitoring context in every response:**
+
+Mother has self-awareness of:
+- ✅ **Current date/time** - Knows today's date and the exact time queries are made
+- ✅ **Ingest configuration** - Knows data is ingested every 5 minutes via systemd timer
+- ✅ **Database statistics** - Reports total snapshots collected and date range
+- ✅ **Monitored services** - Lists all 30+ services being tracked
+- ✅ **System information** - Knows OS, distro, Python version, package manager
+- ✅ **Agent configuration** - Aware of port 8000, WebSocket endpoint, LLM model
+
+**Example - Mother answers config questions:**
+```bash
+You:  "What is the current date?"
+Bot:  "The current date is 2026-01-05"
+
+You:  "How often does the ingest run?"
+Bot:  "The ingest runs every 5 minutes via systemd timer"
+
+You:  "How many services are being monitored?"
+Bot:  "The system is currently monitoring 30 unique services with 180 snapshots collected"
+
+You:  "What's your monitoring setup?"
+Bot:  "[Provides complete technical summary of configuration]"
+```
+
+This context injection allows Mother to provide informed, accurate responses about system configuration without requiring manual updates.
+
 ### 4. Manual Background Monitoring
 
 **One-time ingestion run:**

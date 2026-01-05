@@ -108,6 +108,69 @@ class Mother:
         conn.commit()
         conn.close()
 
+    def get_config_context(self) -> str:
+        """Get configuration context about the system, ingest, and Monit setup."""
+        import os
+        context_parts = []
+        
+        # Current date/time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        context_parts.append(f"Current date/time: {current_time}")
+        
+        # Database statistics
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get total snapshots and date range
+            cursor.execute("SELECT COUNT(*) FROM snapshots")
+            total_snapshots = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM snapshots")
+            min_ts, max_ts = cursor.fetchone()
+            
+            # Get number of unique services
+            cursor.execute("SELECT COUNT(DISTINCT service_name) FROM snapshots")
+            num_services = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            context_parts.append(f"\nDatabase Statistics:")
+            context_parts.append(f"  - Total snapshots collected: {total_snapshots}")
+            context_parts.append(f"  - Date range: {min_ts} to {max_ts}")
+            context_parts.append(f"  - Services monitored: {num_services}")
+        except Exception as e:
+            context_parts.append(f"Database error: {e}")
+        
+        # Ingest configuration
+        context_parts.append(f"\nIngest Configuration:")
+        context_parts.append(f"  - Schedule: Every 5 minutes (via systemd timer)")
+        context_parts.append(f"  - Ingest endpoint: /home/heverz/py_projects/monit-intel/src/monit_intel/ingest.py")
+        context_parts.append(f"  - Database: {self.db_path}")
+        
+        # Agent configuration
+        context_parts.append(f"\nAgent Configuration:")
+        context_parts.append(f"  - Port: 8000")
+        context_parts.append(f"  - WebSocket: /ws/chat")
+        context_parts.append(f"  - LLM: llama3.1:8b")
+        context_parts.append(f"  - Temperature: 0.2 (deterministic)")
+        
+        # System information
+        context_parts.append(f"\nSystem Information:")
+        context_parts.append(f"  - Hostname: {self.system_info.get('hostname', 'unknown')}")
+        context_parts.append(f"  - OS: {self.system_info.get('os', 'unknown')}")
+        context_parts.append(f"  - Distro: {self.system_info.get('distro', 'unknown')}")
+        context_parts.append(f"  - Python: {self.system_info.get('python_version', 'unknown')}")
+        context_parts.append(f"  - Package Manager: {self.system_info.get('package_manager', 'unknown')}")
+        
+        # Monit configuration
+        context_parts.append(f"\nMonit Integration:")
+        context_parts.append(f"  - API URL: {os.getenv('MONIT_URL', 'http://localhost:2812/_status?format=xml')}")
+        context_parts.append(f"  - User: {os.getenv('MONIT_USER', 'N/A')}")
+        context_parts.append(f"  - Status: Connected via ingest service credentials")
+        
+        return "\n".join(context_parts)
+
     def get_service_context(self) -> Dict:
         """Fetch current service status as context for LLM."""
         conn = sqlite3.connect(self.db_path)
@@ -393,9 +456,15 @@ class Mother:
         
         # Invoke LLM directly with context
         try:
+            # Get system and config context
+            config_context = self.get_config_context()
+            
             # Build system-aware prompt
             system_prompt = f"""You are an expert system administrator assistant analyzing server health and providing insights.
 You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
+
+SYSTEM & MONITORING CONFIGURATION:
+{config_context}
 
 CRITICAL: If service logs are provided in the "Recent logs" section below, you MUST:
 1. Extract and highlight KEY METRICS from the logs (file sizes, transfer speeds, error codes, etc.)

@@ -12,8 +12,8 @@ WorkingDirectory=/home/heverz/py_projects/monit-intel
 # Set PYTHONPATH for module discovery
 Environment="PYTHONPATH=/home/heverz/py_projects/monit-intel/src"
 
-# Load environment from .env
-EnvironmentFile=%h/.env
+# Load environment from .env (optional - can also be set in monit-intel-agent.service)
+EnvironmentFile=-/home/heverz/.env
 
 # Run ingest once (timer handles 5-minute scheduling)
 ExecStart=/home/heverz/.pixi/bin/pixi run python -m monit_intel.ingest
@@ -31,11 +31,6 @@ SyslogIdentifier=monit-intel-ingest
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/home/heverz/py_projects/monit-intel
-
-[Install]
-WantedBy=multi-user.target
 ProtectHome=yes
 ReadWritePaths=/home/heverz/py_projects/monit-intel
 
