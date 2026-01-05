@@ -16,7 +16,8 @@ Environment="PYTHONPATH=/home/heverz/py_projects/monit-intel/src"
 EnvironmentFile=-/home/heverz/.env
 
 # Run ingest once (timer handles 5-minute scheduling)
-ExecStart=/home/heverz/.pixi/bin/pixi run python -m monit_intel.ingest
+# Use a wrapper script for reliability under systemd
+ExecStart=/bin/bash /home/heverz/py_projects/monit-intel/scripts/run-ingest.sh
 
 # Restart on failure
 Restart=on-failure
