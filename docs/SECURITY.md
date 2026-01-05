@@ -54,6 +54,7 @@ Credentials for Monit XML API authentication:
 ### Authentication
 
 - **HTTP Basic Auth:** All REST endpoints require valid chat credentials
+    - Protected endpoints: `/health`, `/status`, `/analyze`, `/history`, `/logs/{service}`, all `/mother/*`
 - **WebSocket Auth:** First message must contain username/password
 - **Per-message verification:** Each message validates against database
 
@@ -168,14 +169,7 @@ def hash_password(password: str, salt: str = None) -> tuple:
 
 ### Verification Function
 
-```python
-def verify_password(password: str, stored_hash: str, salt: str) -> bool:
-    """Constant-time password verification."""
-    hashed, _ = hash_password(password, salt)
-    return hashed == stored_hash  # Vulnerable to timing attacks!
-```
-
-**Note:** The current implementation uses simple equality (`==`) which is vulnerable to timing attacks. For production, consider using `secrets.compare_digest()`:
+Password verification is implemented in constant time using `secrets.compare_digest()` to mitigate timing attacks:
 
 ```python
 import secrets
@@ -203,7 +197,7 @@ def verify_password(password: str, stored_hash: str, salt: str) -> bool:
 ⚠️ **Network eavesdropping** - No HTTPS in default setup (use reverse proxy)
 ⚠️ **System compromise** - If server is compromised, all credentials are accessible
 ⚠️ **Weak passwords** - User responsibility to choose strong passwords
-⚠️ **Timing attacks** - Basic `==` comparison leaks timing information
+✅ **Timing attacks** - Mitigated using constant-time comparison
 
 ## Audit Trail
 

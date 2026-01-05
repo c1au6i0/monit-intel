@@ -9,12 +9,14 @@ Comprehensive technical documentation of the Monit-Intel agent system, including
 1. [System Overview](#system-overview)
 2. [Components](#components)
 3. [Two Parallel Systems](#two-parallel-systems)
-4. [Data Flow](#data-flow)
-5. [Historical Data & Snapshots](#historical-data--snapshots)
-6. [System Context Injection](#system-context-injection)
-7. [Per-Service Log Configuration](#per-service-log-configuration)
-8. [Database Schema](#database-schema)
-9. [WebSocket Protocol](#websocket-protocol)
+4. [Mother Query Processing](#mother-query-processing)
+5. [Prompt Assembly](#prompt-assembly)
+6. [Data Flow](#data-flow)
+7. [Historical Data & Snapshots](#historical-data--snapshots)
+8. [System Context Injection](#system-context-injection)
+9. [Per-Service Log Configuration](#per-service-log-configuration)
+10. [Database Schema](#database-schema)
+11. [WebSocket Protocol](#websocket-protocol)
 
 ---
 
@@ -222,6 +224,42 @@ All services show healthy resource utilization with stable trends. No concerning
 | **Output** | Console logs | Conversational response |
 | **Context** | Current failure data | 30-day historical + current |
 | **GPU Usage** | Only when is_critical=True | On every message |
+
+---
+
+## Mother Query Processing
+
+Mother routes each user query through a lightweight classifier and fetches only the data required for the answer.
+
+- Classification (in `query_agent()`):
+  - Greetings → minimal prompt (no config, no DB fetch)
+  - Capabilities ("what do you monitor?") → list monitored services
+  - Configuration ("your setup/config") → configuration context only
+  - Service/status/trend queries → extract service names and fetch data
+
+- Service Extraction (`_extract_services()`):
+  - Matches service names in four forms: exact, spaced, hyphenated, partial whole‑word
+  - Operates against the current service list from the database
+
+- Data Fetch (SQLite):
+  - Current status (`get_service_context()`): latest per service from `snapshots`
+  - Historical trends (`get_historical_trends()`): failure counts, CPU min/avg/max, date window
+  - Logs (`get_service_logs()`): via LogReader (tail file, newest file, journalctl) when relevant
+
+- Guardrails:
+  - Only services mentioned get trends/logs (prevents dumping all context)
+  - Greetings never include configuration (prevents "hello" overload)
+
+## Prompt Assembly
+
+Every answer is a single LLM call composed of two parts:
+
+- System message: MU/TH/UR role, environment facts (SQLite + Monit), OS/package manager detection, analysis rules. For detailed queries, includes a configuration section.
+- User message: The original query plus two DB‑derived blocks:
+  - `--- Current System Status ---` → per‑service lines (name, health, last‑checked, optional logs)
+  - `--- Historical Trends (past N days) ---` → failure rates and CPU min/avg/max for mentioned services
+
+This structure keeps greetings lightweight while making technical answers data‑backed and reproducible.
 
 ---
 

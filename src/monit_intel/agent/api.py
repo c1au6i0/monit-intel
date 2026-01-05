@@ -129,8 +129,8 @@ def health(_: str = Depends(verify_auth)):
 
 
 @app.get("/status", response_model=list[ServiceStatus])
-def get_status():
-    """Get current status of all monitored services."""
+def get_status(_: str = Depends(verify_auth)):
+    """Get current status of all monitored services. Requires authentication."""
     try:
         conn = sqlite3.connect("monit_history.db")
         cursor = conn.cursor()
@@ -159,7 +159,7 @@ def get_status():
 
 
 @app.post("/analyze", response_model=AnalysisResponse)
-def analyze(request: AnalysisRequest):
+def analyze(request: AnalysisRequest, _: str = Depends(verify_auth)):
     """
     Trigger analysis of a service or all current failures.
     If service is None, analyzes all current failures.
@@ -194,7 +194,7 @@ def analyze(request: AnalysisRequest):
 
 
 @app.get("/history")
-def get_history(service: str, days: int = 7):
+def get_history(service: str, days: int = 7, _: str = Depends(verify_auth)):
     """
     Get failure history for a service over the last N days.
     """
@@ -242,8 +242,8 @@ def get_history(service: str, days: int = 7):
 
 
 @app.get("/logs/{service}")
-def get_logs(service: str):
-    """Get latest logs for a specific service."""
+def get_logs(service: str, _: str = Depends(verify_auth)):
+    """Get latest logs for a specific service. Requires authentication."""
     try:
         result = get_service_logs(service)
         
@@ -271,7 +271,7 @@ def mother_chat(request: MotherChatRequest, _: str = Depends(verify_auth)):
     """
     Query the agent using natural language via Mother chat interface.
     Automatically injects service context and failure history.
-    Requires HTTP Basic Authentication (same as Monit credentials).
+    Requires HTTP Basic Authentication (chat credentials).
     """
     try:
         response = mother.query_agent(request.query)

@@ -28,7 +28,8 @@ def hash_password(password: str, salt: str = None) -> tuple:
 def verify_password(password: str, stored_hash: str, salt: str) -> bool:
     """Verify password against stored hash."""
     hashed, _ = hash_password(password, salt)
-    return hashed == stored_hash
+    # Constant-time comparison to avoid timing attacks
+    return secrets.compare_digest(hashed, stored_hash)
 
 
 def init_chat_credentials_table():
