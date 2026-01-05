@@ -21,12 +21,23 @@ fastapi = "*"
 uvicorn = "*"
 click = "*"
 tabulate = "*"
+pytest = "*"
+pytest-cov = "*"
+black = "*"
+ruff = "*"
+mypy = "*"
 
 [tasks]
 ingest = "PYTHONPATH=./src python -m monit_intel.ingest"
 agent = "PYTHONPATH=./src python -m monit_intel.main --api 5 8000"
 hello-mother = "PYTHONPATH=./src python -m monit_intel.hello_mother"
 check-gpu = "nvidia-smi"
+pytest = "pytest tests/"
+black = "black src/"
+ruff = "ruff check src/"
+mypy = "mypy src/"
 
 [tool.pixi]
+# All dependencies defined in [dependencies] section above
+# No pip usage - pixi is the exclusive environment manager
 system-requirements = { cuda = "12.1" }
