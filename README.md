@@ -35,6 +35,7 @@ pixi run agent
 # Production (install systemd services)
 sudo bash ./config/systemd/install-services.sh
 sudo systemctl start monit-intel-agent.service
+sudo systemctl start monit-intel-ingest.timer
 ```
 
 ### 4. Access the Chat UI
@@ -217,6 +218,25 @@ Never use `pip` directly or standard `python` commands—always use `pixi run`.
 | Slow responses | Llama 3.1 inference = 2-5 sec on RTX 4000, 10-20 sec on CPU |
 | Database locked | `rm monit_history.db` (auto-recreates on next run) |
 | Service logs missing | Add entry to [src/monit_intel/tools/log_reader.py](src/monit_intel/tools/log_reader.py) |
+
+### Ingest service keeps restarting
+
+If `monit-intel-ingest.service` fails with environment or path errors, reinstall the systemd units from this repo (they set `PYTHONPATH` and correct `ExecStart`):
+
+```bash
+sudo cp config/systemd/monit-intel-ingest.service /etc/systemd/system/
+sudo cp config/systemd/monit-intel-ingest.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now monit-intel-ingest.timer
+sudo systemctl restart monit-intel-ingest.service
+systemctl status monit-intel-ingest.service --no-pager
+journalctl -u monit-intel-ingest.service -n 50 --no-pager
+```
+
+Notes:
+- `EnvironmentFile=-/home/heverz/.env` is optional; missing file will not break the service.
+- `ExecStart` runs `pixi run python -m monit_intel.ingest` and `PYTHONPATH` is set to `src`.
+- Do not place `ProtectHome`/`ReadWritePaths` in the `[Install]` section; they belong in `[Service]` (already correct in this repo).
 
 ## License
 

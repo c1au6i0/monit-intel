@@ -82,6 +82,11 @@ class Mother:
             info["update_command"] = "Check your OS documentation"
         
         return info
+
+    def _now_string(self) -> str:
+        """Return current local date/time with timezone for deterministic answers."""
+        now = datetime.now().astimezone()
+        return now.strftime("%Y-%m-%d %H:%M:%S %Z%z")
     
     def _command_exists(self, command: str) -> bool:
         """Check if a command exists in PATH."""
@@ -114,7 +119,7 @@ class Mother:
         context_parts = []
         
         # Current date/time
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        current_time = self._now_string()
         context_parts.append(f"Current date/time: {current_time}")
         
         # MONITORING SYSTEM - Lead with what we're monitoring
@@ -434,6 +439,39 @@ class Mother:
         if easter_egg:
             self._store_conversation(user_query, easter_egg, "", [])
             return easter_egg
+
+        # Handle direct date/time questions deterministically
+        ql = user_query.lower()
+        if any(phrase in ql for phrase in [
+            "what time is it", "current time", "time now", "tell me the time",
+            "what's the time", "what is the time", "what date is it", "current date",
+            "today's date", "what day is it", "today date"
+        ]):
+            now_str = self._now_string()
+            resp = f"Current date/time: {now_str}"
+            self._store_conversation(user_query, resp, "", [])
+            return resp
+
+        # Handle data range questions deterministically (global DB range)
+        if any(phrase in ql for phrase in [
+            "since when do you have data", "data since", "from when is your data",
+            "earliest data", "start date", "data range", "how far back"
+        ]):
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT MIN(timestamp), MAX(timestamp), COUNT(*) FROM snapshots")
+                row = cur.fetchone() or (None, None, 0)
+                conn.close()
+                min_ts, max_ts, count = row
+                if count and min_ts and max_ts:
+                    resp = f"I have {count} snapshots from {min_ts} to {max_ts}."
+                else:
+                    resp = "No snapshot data available yet."
+            except Exception as e:
+                resp = f"Unable to query data range: {e}"
+            self._store_conversation(user_query, resp, "", [])
+            return resp
         
         # Check if user is asking about monitoring capabilities
         query_lower = user_query.lower()
