@@ -99,6 +99,7 @@ class Mother:
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                username TEXT,
                 user_query TEXT NOT NULL,
                 agent_response TEXT NOT NULL,
                 service_context TEXT,
@@ -106,6 +107,14 @@ class Mother:
             )
         """)
         conn.commit()
+        
+        # Migration: Add username column if it doesn't exist
+        cursor.execute("PRAGMA table_info(conversations)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "username" not in columns:
+            cursor.execute("ALTER TABLE conversations ADD COLUMN username TEXT")
+            conn.commit()
+        
         conn.close()
 
     def get_config_context(self) -> str:
@@ -419,12 +428,13 @@ class Mother:
             return "No historical data available yet."
 
 
-    def query_agent(self, user_query: str) -> str:
+    def query_agent(self, user_query: str, username: Optional[str] = None) -> str:
         """
         Query the agent with context injection.
         
         Args:
             user_query: User's natural language question
+            username: Optional username of the person making the query
             
         Returns:
             Agent's analysis response
@@ -432,7 +442,7 @@ class Mother:
         # Check for easter eggs first
         easter_egg = self._check_easter_eggs(user_query)
         if easter_egg:
-            self._store_conversation(user_query, easter_egg, "", [])
+            self._store_conversation(user_query, easter_egg, "", [], username)
             return easter_egg
         
         # Check if user is asking about monitoring capabilities
@@ -448,7 +458,7 @@ class Mother:
             "what can you monitor"
         ]):
             response = self.get_monitored_services_info()
-            self._store_conversation(user_query, response, "", [])
+            self._store_conversation(user_query, response, "", [], username)
             return response
         
         # Check if user is asking about YOUR OWN configuration/setup (not service logs)
@@ -479,11 +489,11 @@ Focus only on describing your configuration as stated above."""
                 messages = [("system", system_prompt), ("human", user_query)]
                 response_obj = llm.invoke(messages)
                 response = response_obj.content
-                self._store_conversation(user_query, response, "", [])
+                self._store_conversation(user_query, response, "", [], username)
                 return response
             except Exception as e:
                 error_response = f"Error processing configuration query: {str(e)}"
-                self._store_conversation(user_query, error_response, "", [])
+                self._store_conversation(user_query, error_response, "", [], username)
                 return error_response
         
         # Extract service mentions from query
@@ -592,7 +602,7 @@ Be concise, actionable, and tailor advice to the specific OS and package manager
             response_text = f"Error analyzing query: {str(e)}"
         
         # Store conversation
-        self._store_conversation(user_query, response_text, context_info + "\n\n" + historical_info, mentioned_services)
+        self._store_conversation(user_query, response_text, context_info + "\n\n" + historical_info, mentioned_services, username)
         
         return response_text
 
@@ -731,38 +741,48 @@ SPECIAL ORDER 937 SCIENCE OFFICER EYES ONLY"""
         return "\n".join(lines)
 
     def _store_conversation(self, user_query: str, response: str, 
-                          context: str, services: List[str]):
+                          context: str, services: List[str], username: Optional[str] = None):
         """Store conversation in SQLite."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO conversations (user_query, agent_response, service_context, logs_provided)
-            VALUES (?, ?, ?, ?)
-        """, (user_query, response, json.dumps(services), context))
+            INSERT INTO conversations (username, user_query, agent_response, service_context, logs_provided)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, user_query, response, json.dumps(services), context))
         
         conn.commit()
         conn.close()
 
-    def get_history(self, limit: int = 10) -> List[Dict]:
-        """Retrieve conversation history."""
+    def get_history(self, limit: int = 10, username: Optional[str] = None) -> List[Dict]:
+        """Retrieve conversation history, optionally filtered by username."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT id, timestamp, user_query, agent_response 
-            FROM conversations 
-            ORDER BY timestamp DESC 
-            LIMIT ?
-        """, (limit,))
+        if username:
+            cursor.execute("""
+                SELECT id, timestamp, username, user_query, agent_response 
+                FROM conversations 
+                WHERE username = ?
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            """, (username, limit))
+        else:
+            cursor.execute("""
+                SELECT id, timestamp, username, user_query, agent_response 
+                FROM conversations 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            """, (limit,))
         
         history = []
         for row in cursor.fetchall():
             history.append({
                 "id": row[0],
                 "timestamp": row[1],
-                "user_query": row[2],
-                "agent_response": row[3]
+                "username": row[2],
+                "user_query": row[3],
+                "agent_response": row[4]
             })
         
         conn.close()

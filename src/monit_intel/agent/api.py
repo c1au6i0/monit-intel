@@ -267,14 +267,14 @@ def get_logs(service: str):
 # ============================================================================
 
 @app.post("/mother/chat")
-def mother_chat(request: MotherChatRequest, _: str = Depends(verify_auth)):
+def mother_chat(request: MotherChatRequest, username: str = Depends(verify_auth)):
     """
     Query the agent using natural language via Mother chat interface.
     Automatically injects service context and failure history.
     Requires HTTP Basic Authentication (same as Monit credentials).
     """
     try:
-        response = mother.query_agent(request.query)
+        response = mother.query_agent(request.query, username=username)
         
         return {
             "query": request.query,
@@ -287,10 +287,20 @@ def mother_chat(request: MotherChatRequest, _: str = Depends(verify_auth)):
 
 
 @app.get("/mother/history")
-def mother_history(limit: int = 10, _: str = Depends(verify_auth)):
-    """Get conversation history from Mother. Requires authentication."""
+def mother_history(limit: int = 10, username: str = Depends(verify_auth), filter_user: bool = False):
+    """
+    Get conversation history from Mother. Requires authentication.
+    
+    Args:
+        limit: Maximum number of conversations to return
+        username: Authenticated username (from auth header)
+        filter_user: If True, only return conversations from the authenticated user
+    """
     try:
-        history = mother.get_history(limit=limit)
+        if filter_user:
+            history = mother.get_history(limit=limit, username=username)
+        else:
+            history = mother.get_history(limit=limit)
         
         return {
             "count": len(history),
@@ -468,6 +478,7 @@ async def websocket_chat(websocket: WebSocket):
     """
     await manager.connect(websocket)
     authenticated = False
+    authenticated_username = None
     
     try:
         while True:
@@ -488,6 +499,7 @@ async def websocket_chat(websocket: WebSocket):
                     # Verify against chat credentials in database
                     if verify_chat_credentials(username, password):
                         authenticated = True
+                        authenticated_username = username
                         await websocket.send_json({
                             "type": "system",
                             "message": "Authentication successful"
@@ -541,8 +553,8 @@ async def websocket_chat(websocket: WebSocket):
                         "message": "Processing your query..."
                     })
                     
-                    # Chat with Mother
-                    response = mother.query_agent(content)
+                    # Chat with Mother (pass username)
+                    response = mother.query_agent(content, username=authenticated_username)
                     
                     # Check if Mother's response contains an action suggestion
                     action_suggestion = detect_action_suggestion(response)
