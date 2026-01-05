@@ -211,6 +211,7 @@ http://localhost:8000/chat
 - Logout button in top-right corner
 - Alien aesthetic (phosphor green, scanlines)
 - Historical trend analysis (CPU, memory, failures)
+- **User tracking:** Mother knows who you are and tracks your conversations
 
 **Example queries:**
 ```
@@ -273,17 +274,22 @@ curl -X POST http://localhost:8000/mother/chat \
   -d '{"query": "What about CPU usage?"}'
 # → {"response": "CPU usage is stable...", "timestamp": "..."}
 
-# View conversation history
+# View conversation history (all conversations)
 curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10" | jq
+
+# View only YOUR conversation history
+curl -u your_username:your_password "http://localhost:8000/mother/history?limit=10&filter_user=true" | jq
 ```
+
+**Privacy Note:** Mother tracks which user asked which question. Use `filter_user=true` to see only your conversations.
 
 **Available Endpoints:**
 | Method | Endpoint | Purpose | Auth |
 |--------|----------|---------|------|
 | `GET` | `/health` | Agent status | Basic |
 | `GET` | `/status` | All services | Basic |
-| `POST` | `/mother/chat` | Chat query | Basic |
-| `GET` | `/mother/history` | Chat history | Basic |
+| `POST` | `/mother/chat` | Chat query (tracks username) | Basic |
+| `GET` | `/mother/history` | Chat history (optional `filter_user=true`) | Basic |
 | `POST` | `/mother/actions/suggest` | Preview action | Basic |
 | `POST` | `/mother/actions/execute` | Execute action | Basic |
 | `GET` | `/mother/actions/audit` | Action audit log | Basic |
