@@ -751,10 +751,6 @@
                     addMessage('agent', data.content);
                     break;
 
-                case 'error':
-                    addErrorMessage(`ERROR: ${data.message}`);
-                    break;
-
                 case 'action_suggestion':
                     addActionSuggestion(data);
                     break;

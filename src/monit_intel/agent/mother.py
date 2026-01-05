@@ -476,8 +476,6 @@ Answer directly and authoritatively. Do NOT analyze service logs or provide gene
 Focus only on describing your configuration as stated above."""
             
             try:
-                from langchain_ollama import ChatOllama
-                llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
                 messages = [("system", system_prompt), ("human", user_query)]
                 response_obj = llm.invoke(messages)
                 response = response_obj.content
@@ -492,11 +490,11 @@ Focus only on describing your configuration as stated above."""
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
         
-        # Build context-enriched prompt with current status
-        context_info = self._build_context_info(mentioned_services, service_context)
+        # Build context-enriched prompt with current status (only if services mentioned)
+        context_info = self._build_context_info(mentioned_services, service_context) if mentioned_services else ""
         
-        # Add historical trend data ONLY for mentioned services
-        historical_info = self.get_historical_trends(services=mentioned_services, days=30)
+        # Add historical trend data ONLY for mentioned services (never for empty list)
+        historical_info = self.get_historical_trends(services=mentioned_services, days=30) if mentioned_services else ""
         
         # Determine actual data age to use in prompt
         data_age_days = self._get_data_age_days(mentioned_services)
@@ -507,73 +505,79 @@ Focus only on describing your configuration as stated above."""
         
         # Invoke LLM directly with context
         try:
-            # Get system and config context
-            config_context = self.get_config_context()
+            # Decide if we should include full config context
+            query_lower = user_query.lower()
+            
+            # Check if this is just a simple greeting/chat (no analysis needed)
+            simple_greetings = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening", 
+                              "how are you", "what's up", "howdy", "sup", "yo", "hola", "salut"]
+            is_simple_greeting = any(greeting in query_lower for greeting in simple_greetings)
+            
+            include_full_context = (
+                (any(phrase in query_lower for phrase in [
+                    "system status", "overall", "what's", "how is", "how are", "tell me about",
+                    "any issues", "any problems", "what's wrong", "failures", "errors",
+                    "summary", "overview", "report", "update", "status"
+                ]) or len(mentioned_services) > 0)
+                and not is_simple_greeting
+            )
+            
+            # Get system and config context (conditional)
+            config_context = self.get_config_context() if include_full_context else ""
             
             # Build system-aware prompt
-            system_prompt = f"""You are MU/TH/UR, the primary artificial intelligence of the Monit-Intel monitoring system - you ARE the system itself.
-You have complete knowledge of your own configuration, the services you monitor, and all operational parameters.
+            config_section = f"\nYOUR CONFIGURATION & MONITORED SERVICES:\n{config_context}" if include_full_context else ""
+            
+            # For simple greetings, use a minimal prompt
+            if is_simple_greeting:
+                system_prompt = f"""You are MU/TH/UR, the AI interface to the Monit-Intel monitoring system.
 
-ABOUT YOUR CONFIGURATION (Answer with certainty, not speculation):
+Respond naturally and conversationally. Be friendly but brief.
+You are running on a {self.system_info['os']} system ({self.system_info['distro']}).
+
+Keep responses short and personal - do not dump system information unless specifically asked.
+When users ask for help, ask clarifying questions like:
+- "What service would you like information about?"
+- "Are you looking for current status or historical trends?"
+- "Do you need help with a specific issue?"
+"""
+            else:
+                # For detailed queries, use the full context prompt
+                system_prompt = f"""You are MU/TH/UR, the primary artificial intelligence of the Monit-Intel monitoring system.
+
+You have knowledge of your own configuration, the services you monitor, and all operational parameters.
+
+ABOUT YOUR CONFIGURATION:
 - You monitor services via Monit (NOT Prometheus, Grafana, Datadog, or any other tool)
 - Your database is SQLite (monit_history.db) - NOT PostgreSQL, MySQL, InfluxDB, or any other database
 - You use the Monit XML API at http://localhost:2812/
 - You collect data every 5 minutes via systemd timer
-- All facts about your setup are confirmed in the configuration context below
 
-When describing your setup, configuration, or database - speak with authority and certainty.
-NEVER say "It appears", "seems", "likely using", "possibly", "based on output", or "suggests".
-You KNOW your exact configuration. State facts directly.
+You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.{config_section}
 
-You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
-
-YOUR CONFIGURATION & MONITORED SERVICES:
-{config_context}
-
-CRITICAL INSTRUCTION: Do NOT say "It appears", "The setup seems", "I can see", or use passive language when describing YOUR OWN configuration.
-You KNOW these facts directly because they ARE your configuration. Speak authoritatively about:
-- The exact services you monitor (refer to them by name from your service list)
-- Your database statistics (cite specific numbers)
-- Your operational schedule (you know it's 5-minute intervals)
-
-CRITICAL: If service logs are provided in the "Recent logs" section below, you MUST:
+WHEN ANALYZING SERVICE LOGS:
+If service logs are provided in the "Recent logs" section, you MUST:
 1. Extract and highlight KEY METRICS from the logs (file sizes, transfer speeds, error codes, etc.)
 2. Analyze what the logs reveal about service behavior
 3. Quote specific important lines from the logs in your response
 4. Base conclusions on actual log data, not generic assumptions
-5. DO NOT hallucinate or invent information about tools like Prometheus/Grafana when analyzing logs
-6. DO NOT make up tool names or monitoring systems - only analyze what's actually provided
-
-CRITICAL: If you see a note like "[Note: SERVICE is a Docker container - logs require elevated privileges...]":
-- DO NOT suggest checking /var/log/syslog or other system logs
-- Docker container logs are ONLY accessible inside the container
-- Simply state: "Logs are not accessible due to security restrictions"
-- Focus on the service status metrics provided instead
-- Do NOT make vague suggestions about alternatives that won't work
 
 IMPORTANT GUIDELINES:
 - Do NOT suggest system updates unless the user explicitly asks about updates
 - Do NOT recommend update commands unless directly asked
 - When recommending commands, use {self.system_info['package_manager']} commands, NOT other package managers
-- Only mention the update command if user specifically asks about updating
 - Only report CPU/memory metrics when directly relevant to the user's question
 - Be concise and focus on answering the user's specific question
-- Do NOT speculate about hardware or systems - only use facts provided
 - If user mentioned specific services, ONLY discuss those services in detail
-- Do NOT introduce unrelated services unless user asked for overview
 - When stating time ranges, use the actual data range shown in the historical trends section
 - Do NOT claim services have been running for 30 days if data only covers 1 day
-- Do NOT recommend checking metrics "over the past 30 days" if the provided data only covers 1-2 days
 
-{"You have access to current service status information AND detailed log data for the specific services mentioned. ANALYZE THE LOGS and include log-based findings in your response." if asking_about_specific else f"You have access to current service status and historical trend data for the {data_age_text}."}
-When users specifically ask about changes, trends, history, CPU usage, or resource metrics:
+{"You have access to current service status information AND detailed log data. ANALYZE THE LOGS and include log-based findings in your response." if asking_about_specific else f"You have access to current service status and historical trend data for the {data_age_text}."}
+When users ask about changes, trends, history, CPU usage, or resource metrics:
 - Base all recommendations on the actual data range provided (which may be less than 30 days)
 - Provide specific numbers and percentages from the historical data
 - Report average, minimum, and maximum values for CPU usage when asked
 - Reference the date range shown in the trends data
-- Mention memory usage percentages and sizes when relevant
-
-LOGS PROVIDED: When "Recent logs" section appears below, these are REAL SERVICE LOGS you must analyze and cite.
 
 Be concise, actionable, and tailor advice to the specific OS and package manager."""
             

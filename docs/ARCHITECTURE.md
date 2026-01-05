@@ -149,6 +149,10 @@ Browser sends JSON via WebSocket (/ws/chat)
 FastAPI receives on /ws/chat endpoint
      ▼
 Mother.query_agent(user_query)
+     ├─ Detect if query is a simple greeting (hello, hi, hey, etc.)
+     ├─ IF simple greeting → use MINIMAL system prompt
+     ├─ ELSE → evaluate if technical query
+     │
      ├─ Extract service names from query
      ├─ get_historical_trends():
      │  ├─ Query snapshots (last 30 days)
@@ -158,14 +162,15 @@ Mother.query_agent(user_query)
      ├─ Fetch current service statuses
      ├─ Get recent logs (last 5-10 min per service)
      ├─ Detect OS: Ubuntu? Fedora? Arch?
-     ├─ Build system prompt with context
-     │  └─ "You are MU/TH/UR on Ubuntu 24.04 (apt)"
+     ├─ Build system prompt with conditional context
+     │  ├─ MINIMAL (greeting): Simple, friendly prompt (~200 tokens)
+     │  └─ FULL (analysis): Detailed context with config data (~800 tokens)
      └─ Send enriched prompt to Llama 3.1
            │
            ▼
 Llama 3.1:8b processes enriched context
      ├─ Understands OS-specific commands
-     ├─ Uses historical trend data in analysis
+     ├─ Uses historical trend data in analysis (when provided)
      ├─ References actual logs when appropriate
      └─ Generates conversational response
            │
@@ -174,6 +179,19 @@ Response streamed back via WebSocket
      ▼
 Browser displays in chat UI (Alien aesthetic)
 ```
+
+**Conditional System Prompt Logic:**
+
+The system prompt is adaptive based on query classification:
+
+| Query Type | Prompt Size | Includes Config | Example |
+|-----------|-----------|-----------------|---------|
+| **Simple Greeting** | Minimal (~200 tokens) | No | "hello", "hi", "hey" |
+| **Service Query** | Full (~800 tokens) | Yes, service-specific | "Why is docker failing?" |
+| **Status Query** | Full (~800 tokens) | Yes, with trends | "What is the system status?" |
+| **Configuration Query** | Full (~800 tokens) | Yes, complete | "Tell me about your setup" |
+
+This ensures natural responses to greetings while providing comprehensive analysis for technical queries.
 
 **Example Conversation:**
 
