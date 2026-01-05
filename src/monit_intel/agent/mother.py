@@ -109,11 +109,15 @@ class Mother:
         conn.commit()
         
         # Migration: Add username column if it doesn't exist
-        cursor.execute("PRAGMA table_info(conversations)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if "username" not in columns:
-            cursor.execute("ALTER TABLE conversations ADD COLUMN username TEXT")
-            conn.commit()
+        try:
+            cursor.execute("PRAGMA table_info(conversations)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "username" not in columns:
+                cursor.execute("ALTER TABLE conversations ADD COLUMN username TEXT")
+                conn.commit()
+        except Exception as e:
+            # If migration fails, log but don't crash - table might already be correct
+            print(f"Warning: Could not add username column: {e}")
         
         conn.close()
 
