@@ -117,6 +117,13 @@ class Mother:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
         context_parts.append(f"Current date/time: {current_time}")
         
+        # MONITORING SYSTEM - Lead with what we're monitoring
+        context_parts.append(f"\nMonitoring System:")
+        context_parts.append(f"  - Source: Monit (http://localhost:2812/)")
+        context_parts.append(f"  - Type: Hardware & service monitoring via Monit XML API")
+        context_parts.append(f"  - Database Backend: SQLite (monit_history.db)")
+        context_parts.append(f"  - Framework: Monit-Intel (LangGraph + Llama 3.1:8b)")
+        
         # Database statistics and service list
         try:
             conn = sqlite3.connect(self.db_path)
@@ -136,9 +143,11 @@ class Mother:
             
             conn.close()
             
-            context_parts.append(f"\nDatabase Statistics:")
-            context_parts.append(f"  - Total snapshots collected: {total_snapshots}")
-            context_parts.append(f"  - Date range: {min_ts} to {max_ts}")
+            context_parts.append(f"\nDatabase & Collection:")
+            context_parts.append(f"  - Database: {self.db_path} (SQLite)")
+            context_parts.append(f"  - Total snapshots: {total_snapshots}")
+            context_parts.append(f"  - Data range: {min_ts} to {max_ts}")
+            context_parts.append(f"  - Collection interval: Every 5 minutes (via systemd timer)")
             context_parts.append(f"  - Services monitored: {num_services}")
             context_parts.append(f"  - Service list: {', '.join(services[:10])}")
             if len(services) > 10:
@@ -147,16 +156,17 @@ class Mother:
             context_parts.append(f"Database error: {e}")
         
         # Ingest configuration
-        context_parts.append(f"\nIngest Configuration:")
-        context_parts.append(f"  - Schedule: Every 5 minutes (via systemd timer)")
-        context_parts.append(f"  - Ingest endpoint: /home/heverz/py_projects/monit-intel/src/monit_intel/ingest.py")
-        context_parts.append(f"  - Database: {self.db_path}")
+        context_parts.append(f"\nIngest Pipeline:")
+        context_parts.append(f"  - Schedule: Every 5 minutes via systemd timer")
+        context_parts.append(f"  - Endpoint: /home/heverz/py_projects/monit-intel/src/monit_intel/ingest.py")
+        context_parts.append(f"  - Process: Polls Monit API, parses XML, stores snapshots in SQLite")
         
         # Agent configuration
         context_parts.append(f"\nAgent Configuration:")
+        context_parts.append(f"  - Service: monit-intel-agent (systemd)")
         context_parts.append(f"  - Port: 8000")
-        context_parts.append(f"  - WebSocket: /ws/chat")
-        context_parts.append(f"  - LLM: llama3.1:8b")
+        context_parts.append(f"  - API: REST + WebSocket")
+        context_parts.append(f"  - LLM: Llama 3.1:8b (via Ollama)")
         context_parts.append(f"  - Temperature: 0.2 (deterministic)")
         
         # System information
@@ -441,6 +451,43 @@ class Mother:
             self._store_conversation(user_query, response, "", [])
             return response
         
+        # Check if user is asking about YOUR OWN configuration/setup (not service logs)
+        if any(phrase in query_lower for phrase in [
+            "your monitoring setup",
+            "your configuration",
+            "your database",
+            "tell me about your setup",
+            "tell me about your configuration",
+            "your ingest",
+            "your system info",
+            "your complete monitoring",
+            "describe your setup",
+            "how do you work",
+            "how are you configured"
+        ]):
+            # Answer about own configuration without pulling in service logs
+            config_context = self.get_config_context()
+            system_prompt = f"""You are MU/TH/UR, the primary AI of Monit-Intel monitoring system.
+Answer the user's question about YOUR OWN configuration and setup using these facts:
+
+{config_context}
+
+Answer directly and authoritatively. Do NOT analyze service logs or provide generic monitoring advice.
+Focus only on describing your configuration as stated above."""
+            
+            try:
+                from langchain_ollama import ChatOllama
+                llm = ChatOllama(model="llama3.1:8b", temperature=0.2)
+                messages = [("system", system_prompt), ("human", user_query)]
+                response_obj = llm.invoke(messages)
+                response = response_obj.content
+                self._store_conversation(user_query, response, "", [])
+                return response
+            except Exception as e:
+                error_response = f"Error processing configuration query: {str(e)}"
+                self._store_conversation(user_query, error_response, "", [])
+                return error_response
+        
         # Extract service mentions from query
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
@@ -466,7 +513,18 @@ class Mother:
             # Build system-aware prompt
             system_prompt = f"""You are MU/TH/UR, the primary artificial intelligence of the Monit-Intel monitoring system - you ARE the system itself.
 You have complete knowledge of your own configuration, the services you monitor, and all operational parameters.
-When describing your setup, configuration, or services - speak with authority and certainty, not speculation.
+
+ABOUT YOUR CONFIGURATION (Answer with certainty, not speculation):
+- You monitor services via Monit (NOT Prometheus, Grafana, Datadog, or any other tool)
+- Your database is SQLite (monit_history.db) - NOT PostgreSQL, MySQL, InfluxDB, or any other database
+- You use the Monit XML API at http://localhost:2812/
+- You collect data every 5 minutes via systemd timer
+- All facts about your setup are confirmed in the configuration context below
+
+When describing your setup, configuration, or database - speak with authority and certainty.
+NEVER say "It appears", "seems", "likely using", "possibly", "based on output", or "suggests".
+You KNOW your exact configuration. State facts directly.
+
 You are assisting on a {self.system_info['os']} system ({self.system_info['distro']}) with {self.system_info['package_manager']} package manager.
 
 YOUR CONFIGURATION & MONITORED SERVICES:
