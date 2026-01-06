@@ -9,7 +9,7 @@ import platform
 import subprocess
 import socket
 from datetime import datetime, timezone
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set
 from langchain_ollama import ChatOllama
 from .graph import build_graph
 from ..tools.log_reader import LogReader
@@ -454,6 +454,218 @@ class Mother:
             return "No historical data available yet."
 
 
+    def _parse_timeframe_days(self, query: str, default_days: int = 30) -> float:
+        """Parse natural language timeframe from the query and return days.
+
+        Supports phrases like:
+        - "last 24 hours"
+        - "past 7 days"
+        - "last week"
+        - "last month"
+        Falls back to ``default_days`` when nothing is detected.
+        """
+        import re
+
+        q = query.lower()
+
+        # Explicit numeric duration, e.g. "last 6 hours", "past 10 days"
+        m = re.search(r"\b(last|past)\s+(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months)\b", q)
+        if m:
+            value = int(m.group(2))
+            unit = m.group(3)
+            if "minute" in unit:
+                # Round up to a minimum window of 1 hour
+                return max(1.0 / 24.0, value / 1440.0)
+            if "hour" in unit:
+                return max(1.0, value) / 24.0
+            if "day" in unit:
+                return float(max(1, value))
+            if "week" in unit:
+                return float(max(1, value) * 7)
+            if "month" in unit:
+                return float(max(1, value) * 30)
+
+        # Common shorthand phrases without explicit number
+        if "last week" in q or "past week" in q:
+            return 7.0
+        if "last month" in q or "past month" in q:
+            return 30.0
+        if "last day" in q or "past day" in q or "last 24h" in q or "last 24 h" in q:
+            return 1.0
+
+        # Fallback: keep existing default
+        return float(default_days)
+
+
+    def _parse_metric_filter(self, query: str) -> Set[str]:
+        """Determine which metrics the user is interested in.
+
+        Returns a set containing any of: "status", "cpu", "memory".
+        If no specific metric is mentioned, all three are returned.
+        """
+        q = query.lower()
+        metrics: Set[str] = set()
+
+        if "cpu" in q or "load" in q or "utilization" in q:
+            metrics.add("cpu")
+        if "memory" in q or "mem " in q or " ram" in q:
+            metrics.add("memory")
+        if any(word in q for word in ["status", "healthy", "unhealthy", "failures", "failed", "history", "trend", "trends"]):
+            metrics.add("status")
+
+        if not metrics:
+            # Default: show everything
+            return {"status", "cpu", "memory"}
+        return metrics
+
+
+    def _is_trend_table_request(self, query: str) -> bool:
+        """Detect if the user is explicitly asking for trends/history in tabular form.
+
+        We keep this fairly broad to favor deterministic, data-backed
+        answers when the user asks for trends, graphs, charts, or history.
+        """
+        q = query.lower()
+        keywords = [
+            "trend", "trends", "history", "historical",
+            "graph", "graphs", "chart", "charts", "plot", "plots",
+            "table", "tabular", "report", "timeline",
+        ]
+        return any(k in q for k in keywords)
+
+
+    def _build_trend_table(self, services: List[str], days: float, metrics: Set[str]) -> str:
+        """Build a plain-text table of status/CPU/memory over a timeframe.
+
+        Limits output to the most recent 50 snapshots per service to
+        keep responses readable in the chat UI.
+        """
+        import json
+
+        if not services:
+            return "No services specified for trend table."
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            lines: List[str] = []
+
+            # Ensure at least a 1-day window when nothing sensible was parsed
+            if days <= 0:
+                days = 1.0
+
+            # Decide which columns to show
+            show_status = "status" in metrics
+            show_cpu = "cpu" in metrics
+            show_mem = "memory" in metrics
+
+            for service in services:
+                cursor.execute(
+                    """
+                    SELECT timestamp, status, raw_json
+                    FROM snapshots
+                    WHERE service_name = ?
+                      AND timestamp >= datetime('now', '-' || ? || ' days')
+                    ORDER BY timestamp DESC
+                    LIMIT 50
+                    """,
+                    (service, days),
+                )
+
+                rows = cursor.fetchall()
+                if not rows:
+                    lines.append(f"Service {service}: no data in the last {int(days)} days.")
+                    lines.append("")
+                    continue
+
+                # Reverse to show oldest first
+                rows = list(reversed(rows))
+
+                header = f"Service {service} — last {int(days)} days (showing up to {len(rows)} samples)"
+                lines.append(header)
+
+                # Build header row based on selected metrics
+                columns = ["TIMESTAMP"]
+                if show_status:
+                    columns.append("STATUS")
+                if show_cpu:
+                    columns.append("CPU%")
+                if show_mem:
+                    columns.append("MEM_MB")
+
+                # Fixed-width, space-separated columns for clear visual alignment
+                col_widths = {
+                    "TIMESTAMP": 16,  # e.g. 2026-01-05 14:50
+                    "STATUS": 6,
+                    "CPU%": 6,
+                    "MEM_MB": 7,
+                }
+
+                def fmt_cell(col_name: str, value: str) -> str:
+                    width = col_widths.get(col_name, len(value))
+                    return value.ljust(width)
+
+                header_row = "  ".join(fmt_cell(col, col) for col in columns)
+                separator = "  ".join("-" * col_widths.get(col, len(col)) for col in columns)
+                lines.append(header_row)
+                lines.append(separator)
+
+                for ts, status_val, raw_json in rows:
+                    # Compact local timestamp without timezone to keep columns narrow
+                    try:
+                        from datetime import datetime as _dt
+
+                        dt = _dt.fromisoformat(ts)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        ts_local = dt.astimezone().strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        ts_local = self._to_local(ts)
+
+                    status_str = "OK" if status_val == 0 else "FAIL"
+                    cpu_val = "-"
+                    mem_val = "-"
+
+                    if raw_json:
+                        try:
+                            data = json.loads(raw_json)
+                            cpu_info = data.get("cpu") or {}
+                            mem_info = data.get("memory") or {}
+
+                            cpu_raw = cpu_info.get("percent")
+                            if cpu_raw is not None:
+                                try:
+                                    cpu_val = f"{float(cpu_raw):.1f}"
+                                except (TypeError, ValueError):
+                                    cpu_val = "-"
+
+                            mem_kb = mem_info.get("kilobyte")
+                            if mem_kb is not None:
+                                try:
+                                    mem_val = f"{float(mem_kb) / 1024.0:.1f}"
+                                except (TypeError, ValueError):
+                                    mem_val = "-"
+                        except Exception:
+                            pass
+
+                    cells = [fmt_cell("TIMESTAMP", ts_local)]
+                    if show_status:
+                        cells.append(fmt_cell("STATUS", status_str))
+                    if show_cpu:
+                        cells.append(fmt_cell("CPU%", cpu_val))
+                    if show_mem:
+                        cells.append(fmt_cell("MEM_MB", mem_val))
+
+                    lines.append("  ".join(cells))
+
+                lines.append("")  # blank line between services
+
+            return "\n".join(lines).rstrip() or "No trend data available."
+        finally:
+            conn.close()
+
+
     def query_agent(self, user_query: str, username: Optional[str] = None) -> str:
         """
         Query the agent with context injection.
@@ -569,16 +781,26 @@ Focus only on describing your configuration as stated above."""
         # Extract service mentions from query
         service_context = self.get_service_context()
         mentioned_services = self._extract_services(user_query, service_context)
-        
+
+        # Detect if this is a direct trend/table request and short-circuit with
+        # a deterministic table built directly from the database.
+        trend_days = self._parse_timeframe_days(user_query, default_days=30)
+        metric_filter = self._parse_metric_filter(user_query)
+
+        if mentioned_services and self._is_trend_table_request(user_query):
+            table_text = self._build_trend_table(mentioned_services, trend_days, metric_filter)
+            self._store_conversation(user_query, table_text, f"Trend table for services {mentioned_services} over last {int(trend_days)} days", mentioned_services)
+            return table_text
+
         # Build context-enriched prompt with current status (only if services mentioned)
         context_info = self._build_context_info(mentioned_services, service_context) if mentioned_services else ""
         
         # Add historical trend data ONLY for mentioned services (never for empty list)
-        historical_info = self.get_historical_trends(services=mentioned_services, days=30) if mentioned_services else ""
+        historical_info = self.get_historical_trends(services=mentioned_services, days=int(trend_days)) if mentioned_services else ""
         
         # Determine actual data age to use in prompt
         data_age_days = self._get_data_age_days(mentioned_services)
-        data_age_text = f"past {data_age_days} days" if data_age_days > 0 else "available data"
+        data_age_text = f"past {int(trend_days)} days" if trend_days > 0 else (f"past {data_age_days} days" if data_age_days > 0 else "available data")
         
         # Determine if user asked about specific services or general system
         asking_about_specific = len(mentioned_services) > 0

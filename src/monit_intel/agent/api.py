@@ -9,7 +9,7 @@ import asyncio
 import os
 import base64
 import urllib.parse
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -105,6 +105,81 @@ def _to_local(ts: Optional[str]) -> str:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z%z")
     except Exception:
         return ts
+
+
+def _get_trend_series(services: List[str], days: int = 30) -> Dict[str, List[Dict]]:
+    """Fetch time-series snapshot data for services over the last N days.
+
+    Returns a mapping of service name to a list of points with timestamp,
+    status, and optional CPU / memory metrics, suitable for graphing.
+    """
+    if not services:
+        return {}
+
+    conn = sqlite3.connect("monit_history.db")
+    cursor = conn.cursor()
+
+    result: Dict[str, List[Dict]] = {}
+
+    try:
+        for service in services:
+            cursor.execute(
+                """
+                SELECT timestamp, status, raw_json
+                FROM snapshots
+                WHERE service_name = ?
+                  AND timestamp >= datetime('now', '-' || ? || ' days')
+                                ORDER BY timestamp
+                                LIMIT 500
+                """,
+                (service, days),
+            )
+
+            points: List[Dict] = []
+            for ts, status, raw_json in cursor.fetchall():
+                cpu = None
+                mem_mb = None
+
+                if raw_json:
+                    try:
+                        data = json.loads(raw_json)
+                        if isinstance(data, dict):
+                            cpu_info = data.get("cpu") or {}
+                            mem_info = data.get("memory") or {}
+
+                            cpu_val = cpu_info.get("percent")
+                            if cpu_val is not None:
+                                try:
+                                    cpu = float(cpu_val)
+                                except (TypeError, ValueError):
+                                    cpu = None
+
+                            mem_kb = mem_info.get("kilobyte")
+                            if mem_kb is not None:
+                                try:
+                                    mem_mb = float(mem_kb) / 1024.0
+                                except (TypeError, ValueError):
+                                    mem_mb = None
+                    except Exception:
+                        # If JSON parsing fails, just skip metrics for this point
+                        pass
+
+                points.append(
+                    {
+                        "timestamp": _to_local(ts),
+                        "status": status,
+                        "healthy": status == 0,
+                        "cpu": cpu,
+                        "mem_mb": mem_mb,
+                    }
+                )
+
+            result[service] = points
+
+    finally:
+        conn.close()
+
+    return result
 
 
 @app.get("/")
@@ -337,6 +412,42 @@ def mother_clear(_: str = Depends(verify_auth)):
             "message": "All conversation history has been deleted"
         }
     
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/mother/trends_data")
+def mother_trends_data(
+    services: str = "",
+    days: int = 30,
+    _: str = Depends(verify_auth),
+):
+    """Get structured trend data for one or more services for graphing.
+
+    - ``services``: comma-separated list of service names; if empty, returns data for
+      all services present in the snapshots table.
+    - ``days``: lookback window in days (default 30).
+    """
+    try:
+        # Parse requested services
+        service_list = [s.strip() for s in services.split(",") if s.strip()]
+
+        if not service_list:
+            # Fall back to all distinct services in snapshots
+            conn = sqlite3.connect("monit_history.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT service_name FROM snapshots ORDER BY service_name")
+            service_list = [row[0] for row in cursor.fetchall()]
+            conn.close()
+
+        series = _get_trend_series(service_list, days)
+
+        return {
+            "services": list(series.keys()),
+            "days": days,
+            "series": series,
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
@@ -576,7 +687,7 @@ async def websocket_chat(websocket: WebSocket):
                     
                     print(f"DEBUG: Response: {response[:200]}")  # Debug: print first 200 chars
                     print(f"DEBUG: Action suggestion detected: {action_suggestion}")  # Debug: print detected action
-                    
+
                     if action_suggestion:
                         # Send the response first
                         await websocket.send_json({

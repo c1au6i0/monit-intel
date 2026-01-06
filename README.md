@@ -74,7 +74,7 @@ Agent: "Analyzing logs... The backup process timed out due to disk space..."
 | Feature | Details |
 |---------|---------|
 | **Real-time Chat UI** | WebSocket-based with responsive phosphor-green terminal theme |
-| **Historical Analysis** | 30-day CPU/memory/failure trends with automated rollup |
+| **Historical Analysis** | CPU/memory/failure trends over configurable windows (e.g. last 24h, 7 days, 30 days) rendered as text tables |
 | **Smart Log Aggregation** | Extracts metrics from system logs, journalctl, and Docker stats |
 | **OS-Aware Context** | Detects Ubuntu/Fedora/Arch and provides distro-specific advice |
 | **Safe Design** | Read-only analysis with suggested commands (no auto-execution) |
@@ -114,6 +114,14 @@ http://localhost:8000/chat
 - "Show me CPU usage trends"
 - "What happened to the network yesterday?"
 - "How do I restart the system_backup service?"
+
+You can also ask for **text trend tables** over specific timeframes:
+
+- "show cpu trend for tailscaled for the last 24 hours"
+- "show memory history for zfs-zed over the past 7 days"
+- "show status history for nordvpn for the last week"
+
+Mother parses phrases like "last 24 hours", "past 7 days", "last week", and "last month" and returns aligned tables with timestamp, status, CPU%, and memory (MB) directly in the chat.
 
 ### Interactive CLI
 

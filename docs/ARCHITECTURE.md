@@ -155,12 +155,13 @@ Mother.query_agent(user_query)
      ├─ IF simple greeting → use MINIMAL system prompt
      ├─ ELSE → evaluate if technical query
      │
-     ├─ Extract service names from query
-     ├─ get_historical_trends():
-     │  ├─ Query snapshots (last 30 days)
-     │  ├─ Calculate CPU/memory min/avg/max per service
-     │  ├─ Compute failure rates
-     │  └─ Format into human-readable text
+    ├─ Extract service names from query
+    ├─ Parse natural timeframes ("last 24 hours", "past 7 days", "last week/month")
+    ├─ get_historical_trends():
+    │  ├─ Query snapshots over the requested window (default 30 days)
+    │  ├─ Calculate CPU/memory min/avg/max per service
+    │  ├─ Compute failure rates
+    │  └─ Format into human-readable text tables
      ├─ Fetch current service statuses
      ├─ Get recent logs (last 5-10 min per service)
      ├─ Detect OS: Ubuntu? Fedora? Arch?
