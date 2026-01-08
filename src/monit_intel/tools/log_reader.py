@@ -71,19 +71,25 @@ class LogReader:
         except Exception as e:
             return f"Error reading {newest}: {e}"
     
-    def query_journalctl(self, unit: str) -> Optional[str]:
+    def query_journalctl(self, unit: str, user_service: bool = False) -> Optional[str]:
         """
         Query systemd journal for a specific service.
         
         Args:
             unit: Service name (e.g., 'nordvpnd.service')
+            user_service: If True, query user journal instead of system journal
             
         Returns:
             Recent journal entries for the service
         """
         try:
+            cmd = ["journalctl"]
+            if user_service:
+                cmd.append("--user")
+            cmd.extend(["-u", unit, "-n", str(self.max_lines), "--no-pager"])
+            
             result = subprocess.run(
-                ["journalctl", "-u", unit, "-n", str(self.max_lines), "--no-pager"],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -157,6 +163,17 @@ class LogReader:
                 "strategy": "journalctl",
                 "unit": "zfs-zed.service",
                 "max_lines": 100  # ZFS event daemon logs
+            },
+            "smbd": {
+                "strategy": "journalctl",
+                "unit": "smbd.service",
+                "max_lines": 75  # Samba file sharing daemon
+            },
+            "syncthing": {
+                "strategy": "journalctl",
+                "unit": "syncthing.service",
+                "user_service": True,
+                "max_lines": 75  # File synchronization service (user service)
             },
             # Docker-based services - logs require docker exec with sudo
             # These are explicitly marked to skip journalctl fallback
@@ -254,7 +271,8 @@ class LogReader:
         elif strategy == "newest_file":
             logs = self.find_newest_file(config["pattern"])
         elif strategy == "journalctl":
-            logs = self.query_journalctl(config["unit"])
+            user_service = config.get("user_service", False)
+            logs = self.query_journalctl(config["unit"], user_service=user_service)
         else:
             logs = None
         

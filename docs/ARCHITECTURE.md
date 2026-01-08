@@ -540,6 +540,17 @@ log_registry = {
         "strategy": "journalctl",
         "unit": "docker.service",
         "max_lines": 100
+    },
+    "smbd": {
+        "strategy": "journalctl",
+        "unit": "smbd.service",
+        "max_lines": 75  # Samba file sharing daemon
+    },
+    "syncthing": {
+        "strategy": "journalctl",
+        "unit": "syncthing.service",
+        "user_service": True,  # User service, requires --user flag
+        "max_lines": 75  # File synchronization service
     }
 }
 ```

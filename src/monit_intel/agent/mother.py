@@ -326,6 +326,8 @@ class Mother:
             "network_resurrect": {"strategy": "tail_file", "source": "/var/log/monit-network-restart.log"},
             "sanoid_errors": {"strategy": "journalctl", "source": "sanoid.service"},
             "zfs-zed": {"strategy": "journalctl", "source": "zfs-zed.service"},
+            "smbd": {"strategy": "journalctl", "source": "smbd.service"},
+            "syncthing": {"strategy": "journalctl", "source": "syncthing.service (user)"},
         }
         
         lines.append("\n### Configured Log Sources:")
